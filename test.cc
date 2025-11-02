@@ -7,10 +7,11 @@
 #include <functional>
 
 // Helper function to print test results
-void print_result(const std::string& test_name,
-                 const vegas::Result& result,
-                 const std::vector<double>& expected,
-                 bool show_details = true) {
+void print_result(const std::string &test_name,
+                  const vegas::Result &result,
+                  const std::vector<double> &expected,
+                  bool show_details = true)
+{
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << test_name << "\n";
     std::cout << std::string(60, '=') << "\n";
@@ -19,7 +20,7 @@ void print_result(const std::string& test_name,
         for (size_t i = 0; i < result.integral.size(); ++i) {
             std::cout << "Component " << i << ":\n";
             std::cout << "  Result   = " << std::scientific << std::setprecision(8)
-                      << result.integral[i] << " ± " << result.error[i] << "\n";
+                << result.integral[i] << " ± " << result.error[i] << "\n";
             if (i < expected.size()) {
                 std::cout << "  Expected = " << expected[i] << "\n";
                 double diff = std::abs(result.integral[i] - expected[i]);
@@ -35,14 +36,16 @@ void print_result(const std::string& test_name,
 }
 
 // Diagnostic: Test smooth approximation of the same integral
-void test_smooth_approximation() {
+void test_smooth_approximation()
+{
     std::cout << "\nDiagnostic: Smooth (regularized) version\n";
     std::cout << std::string(60, '-') << "\n";
 
     // Same integral but with regularization parameter
-    double eps = 0.01;  // Removes singularity
+    double eps = 0.01; // Removes singularity
 
-    auto integrand = [eps](const std::vector<double>&x,std::vector<double>&f) {
+    auto integrand = [eps](const std::vector<double> &x, std::vector<double> &f)
+    {
         double k0 = M_PI * x[0];
         double k1 = M_PI * x[1];
         double k2 = M_PI * x[2];
@@ -63,12 +66,13 @@ void test_smooth_approximation() {
     auto result = vegas::integrate(integrand, config);
 
     std::cout << "Regularized result (eps=" << eps << "): "
-              << result.integral[0] << " ± " << result.error[0] << "\n";
+        << result.integral[0] << " ± " << result.error[0] << "\n";
     std::cout << "χ² = " << result.prob[0] << "\n";
     std::cout << "Note: This should be lower than 1.393 due to regularization\n";
 }
 
-void test_gsl_ising_integral() {
+void test_gsl_ising_integral()
+{
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << "GSL Benchmark: Ising Model Integral\n";
     std::cout << std::string(60, '=') << "\n";
@@ -76,7 +80,8 @@ void test_gsl_ising_integral() {
     double exact = 1.3932039296856768591842462603255;
 
     // EXACT same integrand as GSL (no modifications!)
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         double k0 = M_PI * x[0];
         double k1 = M_PI * x[1];
         double k2 = M_PI * x[2];
@@ -125,7 +130,7 @@ void test_gsl_ising_integral() {
     configs.push_back({"Higher alpha=2.0", cfg5});
 
     // Run all configurations
-    for (const auto& [name, config] : configs) {
+    for (const auto &[name, config] : configs) {
         std::cout << "\n" << name << ":\n";
         std::cout << std::string(40, '-') << "\n";
 
@@ -135,7 +140,7 @@ void test_gsl_ising_integral() {
         double sigma = fabs(error) / result.error[0];
 
         std::cout << "Result = " << std::fixed << std::setprecision(6)
-                  << result.integral[0] << " ± " << result.error[0] << "\n";
+            << result.integral[0] << " ± " << result.error[0] << "\n";
         std::cout << "Error  = " << error << " (" << sigma << " sigma)\n";
         std::cout << "χ²   = " << result.prob[0] << "\n";
     }
@@ -146,7 +151,8 @@ void test_gsl_ising_integral() {
 }
 
 // Test 1: Simple polynomial x*y over [0,1]^2
-void test_polynomial_2d() {
+void test_polynomial_2d()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
@@ -154,7 +160,8 @@ void test_polynomial_2d() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         f[0] = x[0] * x[1];
     };
 
@@ -165,7 +172,8 @@ void test_polynomial_2d() {
 }
 
 // Test 2: Gaussian in 3D
-void test_gaussian_3d() {
+void test_gaussian_3d()
+{
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
@@ -173,10 +181,11 @@ void test_gaussian_3d() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         double sum = 0.0;
-        for (const auto& xi : x) {
-            double z = 3.0 * (xi - 0.5);  // Center at 0.5, scale
+        for (const auto &xi : x) {
+            double z = 3.0 * (xi - 0.5); // Center at 0.5, scale
             sum += z * z;
         }
         f[0] = std::exp(-sum);
@@ -192,16 +201,18 @@ void test_gaussian_3d() {
 }
 
 // Test 3: Corner peak (tests importance sampling)
-void test_corner_peak() {
+void test_corner_peak()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
     config.neval = 100000;
     config.niter = 10;
     config.verbose = 0;
-    config.α = 1.5;  // More aggressive grid adaptation
+    config.α = 1.5; // More aggressive grid adaptation
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Peaks near origin
         double a = 0.1;
         f[0] = 1.0 / ((x[0] + a) * (x[1] + a));
@@ -216,7 +227,8 @@ void test_corner_peak() {
 }
 
 // Test 4: Oscillatory function
-void test_oscillatory() {
+void test_oscillatory()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
@@ -224,7 +236,8 @@ void test_oscillatory() {
     config.niter = 8;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         f[0] = std::cos(10.0 * M_PI * x[0]) * std::cos(10.0 * M_PI * x[1]);
     };
 
@@ -236,7 +249,8 @@ void test_oscillatory() {
 }
 
 // Test 5: Product of sines (separable integral)
-void test_product_sines() {
+void test_product_sines()
+{
     vegas::Config config;
     config.ndim = 4;
     config.ncomp = 1;
@@ -244,9 +258,10 @@ void test_product_sines() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         f[0] = 1.0;
-        for (const auto& xi : x) {
+        for (const auto &xi : x) {
             f[0] *= std::sin(M_PI * xi);
         }
     };
@@ -259,7 +274,8 @@ void test_product_sines() {
 }
 
 // Test 6: Discontinuous function
-void test_discontinuous() {
+void test_discontinuous()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
@@ -267,7 +283,8 @@ void test_discontinuous() {
     config.niter = 10;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Step function
         f[0] = (x[0] > 0.5 && x[1] > 0.5) ? 1.0 : 0.0;
     };
@@ -279,7 +296,8 @@ void test_discontinuous() {
 }
 
 // Test 7: Sphere volume in n dimensions
-void test_sphere_volume() {
+void test_sphere_volume()
+{
     vegas::Config config;
     config.ndim = 5;
     config.ncomp = 1;
@@ -287,10 +305,11 @@ void test_sphere_volume() {
     config.niter = 8;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Map [0,1]^n to [-1,1]^n and check if inside unit sphere
         double r2 = 0.0;
-        for (const auto& xi : x) {
+        for (const auto &xi : x) {
             double z = 2.0 * xi - 1.0;
             r2 += z * z;
         }
@@ -307,7 +326,8 @@ void test_sphere_volume() {
 }
 
 // Test 8: Multiple components
-void test_multiple_components() {
+void test_multiple_components()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 3;
@@ -315,9 +335,10 @@ void test_multiple_components() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
-        f[0] = x[0] * x[0] + x[1] * x[1];                    // 2/3
-        f[1] = std::exp(-x[0] - x[1]);                        // (1-1/e)^2
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        f[0] = x[0] * x[0] + x[1] * x[1]; // 2/3
+        f[1] = std::exp(-x[0] - x[1]); // (1-1/e)^2
         f[2] = std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]); // 4/π^2
     };
 
@@ -334,7 +355,8 @@ void test_multiple_components() {
 }
 
 // Test 9: Tsuda's function (difficult peak)
-void test_tsuda() {
+void test_tsuda()
+{
     vegas::Config config;
     config.ndim = 4;
     config.ncomp = 1;
@@ -342,10 +364,11 @@ void test_tsuda() {
     config.niter = 10;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         double a = 0.1;
         double prod = 1.0;
-        for (const auto& xi : x) {
+        for (const auto &xi : x) {
             prod *= 1.0 / (a * a + (xi - 0.5) * (xi - 0.5));
         }
         f[0] = prod;
@@ -361,7 +384,8 @@ void test_tsuda() {
 }
 
 // Test 10: Genz oscillatory test function
-void test_genz_oscillatory() {
+void test_genz_oscillatory()
+{
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
@@ -369,7 +393,8 @@ void test_genz_oscillatory() {
     config.niter = 8;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Genz "Oscillatory" test function
         std::vector<double> u = {1.0, 1.0, 1.0};
         double sum = 0.0;
@@ -386,7 +411,8 @@ void test_genz_oscillatory() {
 }
 
 // Test 11: Camel function (multiple peaks)
-void test_camel() {
+void test_camel()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
@@ -394,7 +420,8 @@ void test_camel() {
     config.niter = 10;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Map to [-2, 2]
         double x1 = 4.0 * x[0] - 2.0;
         double x2 = 4.0 * x[1] - 2.0;
@@ -413,7 +440,8 @@ void test_camel() {
 }
 
 // Test 12: High-dimensional Gaussian with varying widths
-void test_anisotropic_gaussian() {
+void test_anisotropic_gaussian()
+{
     vegas::Config config;
     config.ndim = 6;
     config.ncomp = 1;
@@ -421,7 +449,8 @@ void test_anisotropic_gaussian() {
     config.niter = 10;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Different widths in different dimensions
         std::vector<double> sigma = {0.1, 0.2, 0.3, 0.1, 0.2, 0.3};
         double sum = 0.0;
@@ -447,16 +476,18 @@ void test_anisotropic_gaussian() {
 }
 
 // Test 13: Function with near-singularity
-void test_near_singularity() {
+void test_near_singularity()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
     config.neval = 500000;
     config.niter = 10;
     config.verbose = 0;
-    config.α = 2.0;  // More aggressive adaptation
+    config.α = 2.0; // More aggressive adaptation
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         double epsilon = 0.01;
         double r2 = x[0] * x[0] + x[1] * x[1];
         f[0] = 1.0 / std::sqrt(r2 + epsilon);
@@ -469,7 +500,8 @@ void test_near_singularity() {
 }
 
 // Test 14: Exponential decay product
-void test_exponential_product() {
+void test_exponential_product()
+{
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
@@ -477,10 +509,11 @@ void test_exponential_product() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         double lambda = 2.0;
         f[0] = 1.0;
-        for (const auto& xi : x) {
+        for (const auto &xi : x) {
             f[0] *= lambda * std::exp(-lambda * xi);
         }
     };
@@ -494,7 +527,8 @@ void test_exponential_product() {
 }
 
 // Test 15: Box function (tests stratification)
-void test_box_function() {
+void test_box_function()
+{
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
@@ -502,10 +536,11 @@ void test_box_function() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // 1 inside a box, 0 outside
         bool inside = true;
-        for (const auto& xi : x) {
+        for (const auto &xi : x) {
             inside = inside && (xi >= 0.25 && xi <= 0.75);
         }
         f[0] = inside ? 1.0 : 0.0;
@@ -518,7 +553,8 @@ void test_box_function() {
 }
 
 // Test 16: Very high dimensional (stress test)
-void test_high_dimensional() {
+void test_high_dimensional()
+{
     vegas::Config config;
     config.ndim = 10;
     config.ncomp = 1;
@@ -526,11 +562,12 @@ void test_high_dimensional() {
     config.niter = 8;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Simple product to avoid underflow
         f[0] = 1.0;
-        for (const auto& xi : x) {
-            f[0] *= 2.0 * xi;  // Expected value per dimension: 1
+        for (const auto &xi : x) {
+            f[0] *= 2.0 * xi; // Expected value per dimension: 1
         }
     };
 
@@ -541,7 +578,8 @@ void test_high_dimensional() {
 }
 
 // Test 17: Numerical stability test (very small values)
-void test_small_values() {
+void test_small_values()
+{
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
@@ -549,7 +587,8 @@ void test_small_values() {
     config.niter = 5;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // Very small values to test numerical stability
         double r2 = (x[0] - 0.5) * (x[0] - 0.5) + (x[1] - 0.5) * (x[1] - 0.5);
         f[0] = 1e-10 * std::exp(-100.0 * r2);
@@ -563,7 +602,8 @@ void test_small_values() {
 }
 
 // Test 18: Mixed scale function
-void test_mixed_scale() {
+void test_mixed_scale()
+{
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 2;
@@ -571,7 +611,8 @@ void test_mixed_scale() {
     config.niter = 8;
     config.verbose = 0;
 
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f) {
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
         // One component is large, another is small
         f[0] = 1e6 * x[0] * x[1] * x[2];
         f[1] = 1e-6 * std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]) * std::sin(M_PI * x[2]);
@@ -580,13 +621,14 @@ void test_mixed_scale() {
     auto result = vegas::integrate(integrand, config);
 
     std::vector<double> expected = {
-        1e6 * 0.125,  // (1/2)^3
+        1e6 * 0.125, // (1/2)^3
         1e-6 * std::pow(2.0 / M_PI, 3.0)
     };
     print_result("Test 18: Mixed Scale", result, expected);
 }
 
-int main() {
+int main()
+{
     std::cout << "\n";
     std::cout << "╔════════════════════════════════════════════════════════════╗\n";
     std::cout << "║          VEGAS Monte Carlo Integration Test Suite          ║\n";
@@ -621,8 +663,7 @@ int main() {
         std::cout << "║                  All tests completed!                      ║\n";
         std::cout << "╚════════════════════════════════════════════════════════════╝\n";
         std::cout << "\n";
-
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "\nException caught: " << e.what() << "\n";
         return 1;
     }
