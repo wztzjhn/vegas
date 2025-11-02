@@ -14,63 +14,35 @@
 
 namespace vegas
 {
-    /**
-     * Configuration for VEGAS integration
-     */
+    /** Configuration for VEGAS integration */
     struct Config {
-        int ndim = 2; // Number of input dimensions
-        int ncomp = 1; // Number of output components (integrands)
-        int neval = 100000; // Approximate number of evaluations per iteration
-        int niter = 10; // Number of iterations
-        int nbins = 50; // Number of bins per dimension
-        int nstrat = 0; // Number of stratifications per dimension (0=auto)
-        double α = 1.5; // Grid refinement parameter (0.5-2.0)
-        double rtol = 1e-3; // Relative tolerance
-        double atol = 1e-10; // Absolute tolerance
-        int verbose = 0; // Verbosity level (0=silent, 1=iterations, 2=detailed)
+        int ndim      = 2;         // Number of input dimensions
+        int ncomp     = 1;         // Number of output components (integrands)
+        int neval     = 100000;    // Approximate number of evaluations per iteration
+        int niter     = 10;        // Number of iterations
+        int nbins     = 50;        // Number of bins per dimension
+        int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
+        double α      = 1.5;       // Grid refinement parameter (0.5-2.0)
+        double rtol   = 1e-3;      // Relative tolerance
+        double atol   = 1e-10;     // Absolute tolerance
+        int verbose   = 0;         // Verbosity level (0=silent, 1=iterations, 2=detailed)
         uint64_t seed = 123456789; // Random seed for reproducibility
     };
 
-    /**
-     * Result of VEGAS integration
-     */
+    /** Result of VEGAS integration */
     struct Result {
         std::vector<double> integral; // Integral estimates for each component
-        std::vector<double> error; // Error estimates for each component
-        std::vector<double> prob; // Chi-squared probabilities
-        int neval = 0; // Actual number of evaluations
-        bool converged = true; // True if all components converged
+        std::vector<double> error;    // Error estimates for each component
+        std::vector<double> prob;     // Chi-squared probabilities
+        int neval = 0;                // Actual number of evaluations
+        bool converged = true;        // True if all components converged
 
         Result() = default;
         explicit Result(int ncomp) : integral(ncomp), error(ncomp), prob(ncomp) {}
     };
 
-    /**
-     * Internal state for VEGAS algorithm
-     */
+    /** Internal state for VEGAS algorithm */
     class VegasState {
-    private:
-        int ndim_;
-        int ncomp_;
-        int nbins_;
-        int nstrat_;
-        double α_;
-
-        // Grid boundaries and importance sampling weights
-        std::vector<std::vector<double>> xi_; // [ndim][nbins+1]
-        std::vector<std::vector<double>> d_; // [ndim][nbins]
-
-        // Accumulation for weighted averaging and chi-squared test
-        std::vector<double> sum_wgt_;
-        std::vector<double> sum_wgt2_;
-        std::vector<double> sum_integral_;
-        std::vector<double> sum_χ2_;
-        int iter_count_;
-
-        // Random number generator (thread-safe when each instance is independent)
-        std::mt19937_64 rng_;
-        std::uniform_real_distribution<> uniform_;
-
     public:
         explicit VegasState(const Config &config) : ndim_(config.ndim),
                                                     ncomp_(config.ncomp),
@@ -78,8 +50,7 @@ namespace vegas
                                                     nstrat_(config.nstrat),
                                                     α_(config.α),
                                                     iter_count_(0),
-                                                    rng_(config.seed),
-                                                    uniform_(0.0, 1.0)
+                                                    rng_(config.seed)
         {
             if (ndim_ <= 0 || ncomp_ <= 0) {
                 throw std::invalid_argument("ndim and ncomp must be positive");
@@ -103,19 +74,20 @@ namespace vegas
             }
 
             // Initialize accumulation arrays
-            sum_wgt_.resize(ncomp_, 0.0);
-            sum_wgt2_.resize(ncomp_, 0.0);
-            sum_integral_.resize(ncomp_, 0.0);
-            sum_χ2_.resize(ncomp_, 0.0);
-        }
-
-        double uniform()
-        {
-            return uniform_(rng_);
+            sum_wgt_.assign(ncomp_, 0.0);
+            sum_wgt2_.assign(ncomp_, 0.0);
+            sum_integral_.assign(ncomp_, 0.0);
+            sum_χ2_.assign(ncomp_, 0.0);
         }
 
         void refine_grid(const std::vector<std::vector<double>> &bin_accumulator)
         {
+            if (static_cast<int>(bin_accumulator.size()) != ndim_ * nbins_) throw std::invalid_argument("bin_accumulator size mismatch");
+            for (const auto &ele : bin_accumulator) {
+                if (static_cast<int>(ele.size()) != ncomp_) throw std::invalid_argument("bin_accumulator size mismatch");
+            }
+            const double δ = 1.0 / nbins_;
+
             for (int dim = 0; dim < ndim_; ++dim) {
                 std::vector<double> d_smooth(nbins_);
 
@@ -130,21 +102,17 @@ namespace vegas
 
                 // Normalize
                 double sum = std::accumulate(d_smooth.begin(), d_smooth.end(), 0.0);
-                if (sum <= 0.0) sum = 1.0; // Prevent division by zero
-
-                for (auto &val : d_smooth) {
-                    val /= sum;
-                }
+                // if (sum <= 0.0) sum = 1.0; // Prevent division by zero
+                for (auto &val : d_smooth) val /= sum;
 
                 // Compute new grid
                 std::vector<double> xi_new(nbins_ + 1);
-                xi_new[0] = 0.0;
+                xi_new[0]      = 0.0;
                 xi_new[nbins_] = 1.0;
 
-                const double delta = 1.0 / nbins_;
                 int k = 1;
                 double accum = 0.0;
-                double target = delta;
+                double target = δ;
 
                 for (int i = 0; i < nbins_; ++i) {
                     accum += d_smooth[i];
@@ -152,7 +120,7 @@ namespace vegas
                         const double frac = (target - (accum - d_smooth[i])) / (d_smooth[i] + 1e-30);
                         xi_new[k] = xi_[dim][i] + frac * (xi_[dim][i + 1] - xi_[dim][i]);
                         ++k;
-                        target += delta;
+                        target += δ;
                     }
                 }
 
@@ -178,7 +146,7 @@ namespace vegas
                 nstrat = std::clamp(nstrat, 1, 10);
             }
 
-            // Calculate total number of strata
+            // Calculate the total number of strata
             long long nstrat_total_ll = 1;
             for (int i = 0; i < ndim_; ++i) {
                 nstrat_total_ll *= nstrat;
@@ -225,8 +193,9 @@ namespace vegas
                         std::vector<int> bin_idx(ndim_);
 
                         // Generate random point
+                        std::uniform_real_distribution uniform_(0.0, 1.0);
                         for (int dim = 0; dim < ndim_; ++dim) {
-                            double u = uniform();
+                            double u = uniform_(rng_);
                             double bin_coord = (strat_idx[dim] + u) / nstrat;
 
                             // Find bin
@@ -321,7 +290,7 @@ namespace vegas
 
                     // Chi-squared accumulation
                     if (iter > 0 && sum_wgt_[comp] > wgt) {
-                        double delta = iter_integral - old_integral;
+                        const double delta = iter_integral - old_integral;
                         sum_χ2_[comp] += wgt * delta * delta;
                     }
                 }
@@ -382,6 +351,27 @@ namespace vegas
 
             return result;
         }
+
+    private:
+        int ndim_;
+        int ncomp_;
+        int nbins_;
+        int nstrat_;
+        double α_;
+
+        // Grid boundaries and importance sampling weights
+        std::vector<std::vector<double>> xi_; // [ndim][nbins+1]
+        std::vector<std::vector<double>> d_;  // [ndim][nbins]
+
+        // Accumulation for weighted averaging and chi-squared test
+        std::vector<double> sum_wgt_;
+        std::vector<double> sum_wgt2_;
+        std::vector<double> sum_integral_;
+        std::vector<double> sum_χ2_;
+        int iter_count_;
+
+        // Random number generator (thread-safe when each instance is independent)
+        std::mt19937_64 rng_;
     };
 
     /**
