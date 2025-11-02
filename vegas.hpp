@@ -27,6 +27,10 @@ namespace vegas
         double atol   = 1e-10;     // Absolute tolerance
         int verbose   = 0;         // Verbosity level (0=silent, 1=iterations, 2=detailed)
         uint64_t seed = 123456789; // Random seed for reproducibility
+
+        // Integration bounds (default: [0,1]^ndim)
+        std::vector<double> xmin; // Lower bounds
+        std::vector<double> xmax; // Upper bounds
     };
 
     /** Result of VEGAS integration */
@@ -139,6 +143,30 @@ namespace vegas
         template <typename Integrand>
         Result integrate(Integrand &&integrand, const Config &config)
         {
+            // Handle integration bounds
+            std::vector<double> xmin = config.xmin;
+            std::vector<double> xmax = config.xmax;
+
+            // Default to [0,1]^ndim if not specified
+            if (xmin.empty()) xmin.assign(ndim_, 0.0);
+            if (xmax.empty()) xmax.assign(ndim_, 1.0);
+
+            // Validate bounds
+            if (static_cast<int>(xmin.size()) != ndim_ ||
+                static_cast<int>(xmax.size()) != ndim_) {
+                throw std::invalid_argument("xmin/xmax size must match ndim");
+            }
+
+            // Compute volume Jacobian
+            double volume_jacobian = 1.0;
+            for (int dim = 0; dim < ndim_; ++dim) {
+                double range = xmax[dim] - xmin[dim];
+                if (range <= 0.0) {
+                    throw std::invalid_argument("xmax must be > xmin for all dimensions");
+                }
+                volume_jacobian *= range;
+            }
+
             // Calculate stratification if not specified
             int nstrat = nstrat_;
             if (nstrat <= 0) {
@@ -169,7 +197,8 @@ namespace vegas
             Result result(ncomp_);
 
             // Working arrays
-            std::vector<double> x(ndim_);
+            std::vector<double> x_unit(ndim_);   // Point in [0,1]^ndim
+            std::vector<double> x_actual(ndim_); // Point in [xmin,xmax]^ndim
             std::vector<double> f(ncomp_);
 
             // Main iteration loop
@@ -203,16 +232,22 @@ namespace vegas
                             bin = std::min(bin, nbins_ - 1);
                             bin_idx[dim] = bin;
 
-                            // Map to [0,1]^ndim using importance sampling grid
+                            // Map to [0,1] using importance sampling grid
                             double bin_width = xi_[dim][bin + 1] - xi_[dim][bin];
                             double u_in_bin = bin_coord * nbins_ - bin;
-                            x[dim] = xi_[dim][bin] + u_in_bin * bin_width;
+                            x_unit[dim] = xi_[dim][bin] + u_in_bin * bin_width;
+
+                            // Transform to actual domain [xmin, xmax]
+                            x_actual[dim] = xmin[dim] + x_unit[dim] * (xmax[dim] - xmin[dim]);
 
                             jacobian *= bin_width * nbins_;
                         }
 
-                        // Evaluate integrand
-                        integrand(x, f);
+                        // Apply volume Jacobian
+                        jacobian *= volume_jacobian;
+
+                        // Evaluate integrand on actual domain
+                        integrand(x_actual, f);
                         ++result.neval;
 
                         // Check for invalid values
@@ -378,7 +413,7 @@ namespace vegas
      * Main integration function
      *
      * @param integrand Function with signature void(const std::vector<double>& x, std::vector<double>& f)
-     *                  where x is the input point in [0,1]^ndim and f is the output vector of size ncomp
+     *                  where x is the input point in [xmin,xmax]^ndim and f is the output vector of size ncomp
      * @param config Configuration parameters
      * @return Result structure with integrals and errors
      */

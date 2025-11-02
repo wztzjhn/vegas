@@ -627,6 +627,102 @@ void test_mixed_scale()
     print_result("Test 18: Mixed Scale", result, expected);
 }
 
+// Test 19: Custom boundaries - trigonometric integral
+void test_custom_boundaries_trig()
+{
+    vegas::Config config;
+    config.ndim = 2;
+    config.ncomp = 1;
+    config.neval = 100000;
+    config.niter = 10;
+    config.verbose = 0;
+
+    // Integrate over [0, π] × [0, 2π]
+    config.xmin = {0.0, 0.0};
+    config.xmax = {M_PI, 2.0 * M_PI};
+
+    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
+    {
+        // x[0] ∈ [0, π], x[1] ∈ [0, 2π]
+        // Integrate: ∫₀^π ∫₀^(2π) sin(x) * cos(y) dy dx
+        f[0] = std::sin(x[0]) * std::cos(x[1]);
+    };
+
+    auto result = vegas::integrate(integrand, config);
+
+    // Expected: ∫₀^π sin(x) dx * ∫₀^(2π) cos(y) dy
+    //         = [-cos(x)]₀^π * [sin(y)]₀^(2π)
+    //         = (-(-1) - (-1)) * (0 - 0) = 0
+    double expected = 0.0;
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "Test 19: Custom Boundaries [0,π]×[0,2π]\n";
+    std::cout << std::string(60, '=') << "\n";
+    std::cout << "Domain: [0, π] × [0, 2π]\n";
+    std::cout << "Function: sin(x) * cos(y)\n";
+    std::cout << "Component 0:\n";
+    std::cout << "  Result   = " << std::scientific << std::setprecision(8)
+              << result.integral[0] << " ± " << result.error[0] << "\n";
+    std::cout << "  Expected = " << expected << "\n";
+    double diff = std::abs(result.integral[0] - expected);
+    double sigma = diff / result.error[0];
+    std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
+    std::cout << "  χ²       = " << result.prob[0] << "\n";
+    std::cout << "Total evaluations: " << result.neval << "\n";
+    std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
+}
+
+// Test 20: Custom boundaries - Gaussian in shifted domain
+void test_custom_boundaries_gaussian()
+{
+    vegas::Config config;
+    config.ndim = 3;
+    config.ncomp = 1;
+    config.neval = 200000;
+    config.niter = 10;
+    config.verbose = 0;
+
+    // Integrate over [-3, 3]^3
+    config.xmin = {-3.0, -3.0, -3.0};
+    config.xmax = {3.0, 3.0, 3.0};
+
+    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
+    {
+        // x ∈ [-3, 3]^3
+        // Integrate: exp(-x²/2 - y²/2 - z²/2) over [-3,3]^3
+        double sum = 0.0;
+        for (const auto& xi : x) {
+            sum += xi * xi;
+        }
+        f[0] = std::exp(-0.5 * sum);
+    };
+
+    auto result = vegas::integrate(integrand, config);
+
+    // Expected: ∏ᵢ ∫₋₃³ exp(-xᵢ²/2) dxᵢ
+    //         = [√(2π) * (Φ(3) - Φ(-3))]³
+    //         ≈ [√(2π) * 0.9973]³
+    // Where Φ is the standard normal CDF
+    double integral_1d = std::sqrt(2.0 * M_PI) * std::erf(3.0 / std::sqrt(2.0));
+    double expected = std::pow(integral_1d, 3.0);
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "Test 20: Custom Boundaries [-3,3]³\n";
+    std::cout << std::string(60, '=') << "\n";
+    std::cout << "Domain: [-3, 3]³\n";
+    std::cout << "Function: exp(-0.5*(x²+y²+z²))\n";
+    std::cout << "Component 0:\n";
+    std::cout << "  Result   = " << std::scientific << std::setprecision(8)
+              << result.integral[0] << " ± " << result.error[0] << "\n";
+    std::cout << "  Expected = " << expected << "\n";
+    double diff = std::abs(result.integral[0] - expected);
+    double sigma = diff / result.error[0];
+    std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
+    std::cout << "  χ²       = " << result.prob[0] << "\n";
+    std::cout << "Total evaluations: " << result.neval << "\n";
+    std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
+}
+
 int main()
 {
     std::cout << "\n";
@@ -653,6 +749,8 @@ int main()
         test_high_dimensional();
         test_small_values();
         test_mixed_scale();
+        test_custom_boundaries_trig();
+        test_custom_boundaries_gaussian();
 
         test_gsl_ising_integral();
 
