@@ -1,10 +1,12 @@
-#include "vegas.hpp"
+#include <chrono>
 #include <iostream>
 #include <iomanip>
 #include <cmath>
 #include <vector>
 #include <string>
 #include <functional>
+
+#include "vegas.hpp"
 
 // Helper function to print test results
 void print_result(const std::string &test_name,
@@ -723,6 +725,236 @@ void test_custom_boundaries_gaussian()
     std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
 }
 
+// Test 21: Large number of components (ncomp=2000) with automatic verification
+void test_large_ncomp()
+{
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "Test 21: Large Number of Components (ncomp=2000)\n";
+    std::cout << std::string(60, '=') << "\n";
+
+    const int num_components = 2000;
+
+    vegas::Config config;
+    config.ndim = 2;
+    config.ncomp = num_components;
+    config.neval = 500000;  // More samples for many components
+    config.niter = 8;
+    config.verbose = 0;
+
+    // Pre-compute expected values for all components
+    std::vector<double> expected(num_components);
+
+    // Components 0-999: Polynomials ∫₀¹ x^n * y^m dx dy
+    for (int i = 0; i < 1000; ++i) {
+        int n = i % 10;  // Powers 0-9 for x
+        int m = i / 10;  // Powers 0-99 for y
+        expected[i] = 1.0 / ((n + 1) * (m + 1));
+    }
+
+    // Components 1000-1999: Exponential decay ∫₀¹ exp(-λx) * exp(-μy) dx dy
+    for (int i = 1000; i < 2000; ++i) {
+        double lambda = 0.5 + 0.01 * (i - 1000);  // λ from 0.5 to 10.49
+        double mu = 1.0 + 0.02 * (i - 1000);       // μ from 1.0 to 20.98
+        expected[i] = (1.0 - std::exp(-lambda)) * (1.0 - std::exp(-mu));
+    }
+
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Components 0-999: Polynomials
+        for (int i = 0; i < 1000; ++i) {
+            int n = i % 10;
+            int m = i / 10;
+            f[i] = std::pow(x[0], n) * std::pow(x[1], m);
+        }
+
+        // Components 1000-1999: Exponential decay
+        for (int i = 1000; i < 2000; ++i) {
+            double lambda = 0.5 + 0.01 * (i - 1000);
+            double mu = 1.0 + 0.02 * (i - 1000);
+            f[i] = lambda * std::exp(-lambda * x[0]) * mu * std::exp(-mu * x[1]);
+        }
+    };
+
+    std::cout << "Computing " << num_components << " integrals...\n";
+    auto start = std::chrono::high_resolution_clock::now();
+
+    auto result = vegas::integrate(integrand, config);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "Computation time: " << duration.count() << " ms\n";
+    std::cout << "Total evaluations: " << result.neval << "\n\n";
+
+    // Automatic verification with assertions
+    std::cout << "Running automatic verification...\n";
+    std::cout << std::string(60, '-') << "\n";
+
+    int passed = 0;
+    int failed = 0;
+    int failed_3sigma = 0;
+    int failed_5sigma = 0;
+    double max_sigma = 0.0;
+    int max_sigma_component = -1;
+    double total_relative_error = 0.0;
+
+    std::vector<int> failed_components;
+
+    for (int comp = 0; comp < num_components; ++comp) {
+        // Check for NaN or inf
+        if (!std::isfinite(result.integral[comp]) || !std::isfinite(result.error[comp])) {
+            std::cerr << "ERROR: Component " << comp << " has non-finite values!\n";
+            std::cerr << "  Result = " << result.integral[comp]
+                      << " ± " << result.error[comp] << "\n";
+            ++failed;
+            failed_components.push_back(comp);
+            continue;
+        }
+
+        // Check for zero error (shouldn't happen)
+        if (result.error[comp] <= 0.0) {
+            std::cerr << "ERROR: Component " << comp << " has zero or negative error!\n";
+            ++failed;
+            failed_components.push_back(comp);
+            continue;
+        }
+
+        // Compute deviation
+        double diff = std::abs(result.integral[comp] - expected[comp]);
+        double sigma = diff / result.error[comp];
+        double rel_error = (expected[comp] != 0.0) ?
+            std::abs(diff / expected[comp]) : diff;
+
+        total_relative_error += rel_error;
+
+        if (sigma > max_sigma) {
+            max_sigma = sigma;
+            max_sigma_component = comp;
+        }
+
+        // Count failures at different sigma levels
+        if (sigma > 5.0) {
+            ++failed_5sigma;
+            ++failed;
+            failed_components.push_back(comp);
+        } else if (sigma > 3.0) {
+            ++failed_3sigma;
+        } else {
+            ++passed;
+        }
+    }
+
+    // Calculate statistics
+    double pass_rate = 100.0 * passed / num_components;
+    double avg_relative_error = total_relative_error / num_components;
+
+    // Print summary
+    std::cout << "\nVerification Results:\n";
+    std::cout << std::string(60, '-') << "\n";
+    std::cout << "✓ Passed (< 3σ):          " << passed << " / " << num_components
+              << " (" << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
+    std::cout << "⚠ Warning (3-5σ):         " << failed_3sigma << "\n";
+    std::cout << "✗ Failed (> 5σ):          " << failed_5sigma << "\n";
+    std::cout << "✗ Failed (NaN/Inf/Zero):  " << failed - failed_5sigma << "\n";
+    std::cout << "\nStatistics:\n";
+    std::cout << "  Max deviation:          " << std::scientific << std::setprecision(4)
+              << max_sigma << "σ (component " << max_sigma_component << ")\n";
+    std::cout << "  Avg relative error:     " << avg_relative_error << "\n";
+    std::cout << "  Overall converged:      " << (result.converged ? "Yes" : "No") << "\n";
+
+    // Show some example results
+    std::cout << "\nSample Results:\n";
+    std::cout << std::string(60, '-') << "\n";
+    std::vector<int> samples = {0, 100, 500, 999, 1000, 1500, 1999};
+    for (int comp : samples) {
+        double diff = std::abs(result.integral[comp] - expected[comp]);
+        double sigma = diff / result.error[comp];
+        std::cout << "Component " << std::setw(4) << comp << ": "
+                  << std::scientific << std::setprecision(6)
+                  << result.integral[comp] << " ± " << result.error[comp]
+                  << " (expected: " << expected[comp] << ", "
+                  << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+    }
+
+    // Show worst failures if any
+    if (!failed_components.empty() && failed_components.size() <= 10) {
+        std::cout << "\nFailed Components:\n";
+        std::cout << std::string(60, '-') << "\n";
+        for (int comp : failed_components) {
+            double diff = std::abs(result.integral[comp] - expected[comp]);
+            double sigma = diff / result.error[comp];
+            std::cout << "Component " << std::setw(4) << comp << ": "
+                      << std::scientific << std::setprecision(6)
+                      << result.integral[comp] << " ± " << result.error[comp]
+                      << " (expected: " << expected[comp] << ", "
+                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+        }
+    } else if (failed_components.size() > 10) {
+        std::cout << "\n" << failed_components.size() << " components failed (showing first 10):\n";
+        std::cout << std::string(60, '-') << "\n";
+        for (int i = 0; i < 10; ++i) {
+            int comp = failed_components[i];
+            double diff = std::abs(result.integral[comp] - expected[comp]);
+            double sigma = diff / result.error[comp];
+            std::cout << "Component " << std::setw(4) << comp << ": "
+                      << std::scientific << std::setprecision(6)
+                      << result.integral[comp] << " ± " << result.error[comp]
+                      << " (expected: " << expected[comp] << ", "
+                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+        }
+    }
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+
+    // Assertions
+    std::cout << "\nAssertion Checks:\n";
+    std::cout << std::string(60, '-') << "\n";
+
+    // Check 1: No NaN or Inf values
+    bool check1 = (failed - failed_5sigma) == 0;
+    std::cout << (check1 ? "✓" : "✗") << " No NaN/Inf/Zero errors\n";
+    if (!check1) {
+        throw std::runtime_error("ASSERTION FAILED: Found NaN/Inf/Zero values");
+    }
+
+    // Check 2: Pass rate > 95% (allowing for statistical fluctuations)
+    // With 2000 components, expect ~5% to be > 2σ by chance
+    bool check2 = pass_rate >= 95.0;
+    std::cout << (check2 ? "✓" : "✗") << " Pass rate >= 95% (got "
+              << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
+    if (!check2) {
+        throw std::runtime_error("ASSERTION FAILED: Pass rate too low");
+    }
+
+    // Check 3: No catastrophic failures (> 10σ)
+    bool check3 = max_sigma < 10.0;
+    std::cout << (check3 ? "✓" : "✗") << " Max deviation < 10σ (got "
+              << std::fixed << std::setprecision(2) << max_sigma << "σ)\n";
+    if (!check3) {
+        throw std::runtime_error("ASSERTION FAILED: Catastrophic deviation detected");
+    }
+
+    // Check 4: Average relative error is reasonable
+    bool check4 = avg_relative_error < 0.01;  // < 1% average
+    std::cout << (check4 ? "✓" : "✗") << " Avg relative error < 1% (got "
+              << std::scientific << std::setprecision(4) << avg_relative_error << ")\n";
+    if (!check4) {
+        throw std::runtime_error("ASSERTION FAILED: Average relative error too high");
+    }
+
+    // Check 5: Less than 1% complete failures (> 5σ)
+    double failure_rate = 100.0 * failed_5sigma / num_components;
+    bool check5 = failure_rate < 1.0;
+    std::cout << (check5 ? "✓" : "✗") << " Failure rate < 1% (got "
+              << std::fixed << std::setprecision(2) << failure_rate << "%)\n";
+    if (!check5) {
+        throw std::runtime_error("ASSERTION FAILED: Too many 5-sigma failures");
+    }
+
+    std::cout << "\n✓ All assertions passed!\n";
+    std::cout << std::string(60, '=') << "\n";
+}
+
 int main()
 {
     std::cout << "\n";
@@ -751,6 +983,9 @@ int main()
         test_mixed_scale();
         test_custom_boundaries_trig();
         test_custom_boundaries_gaussian();
+
+        // Stress test with many components
+        test_large_ncomp();
 
         test_gsl_ising_integral();
 
