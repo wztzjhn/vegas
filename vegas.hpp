@@ -521,7 +521,7 @@ namespace vegas
      * @return Result structure with integrals and errors
      */
     template <typename Integrand, typename UserData>
-    Result integrate_with_data(Integrand &&integrand,UserData *userdata,
+    Result integrate_with_data(Integrand &&integrand, UserData *userdata,
         const std::vector<double> &xmin, const std::vector<double> &xmax,
         int ncomp = 1,
         int maxeval = 1000000,
