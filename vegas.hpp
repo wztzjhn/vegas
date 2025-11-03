@@ -22,7 +22,7 @@ namespace vegas
         int niter     = 10;        // Number of iterations
         int nbins     = 50;        // Number of bins per dimension
         int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
-        double α      = 1.5;       // Grid refinement parameter (0.5-2.0)
+        double α      = 1.5;       // Grid refinement parameter (0.5-2.0). α > 1: focuses on peaks, α < 1: more conservative
         double rtol   = 1e-3;      // Relative tolerance
         double atol   = 1e-10;     // Absolute tolerance
         int verbose   = 0;         // Verbosity level (0=silent, 1=iterations, 2=detailed)
@@ -130,13 +130,10 @@ namespace vegas
                     double target = static_cast<double>(k) / nbins_;
 
                     // Binary search for the bin containing target
-                    int bin = 0;
-                    for (int i = 0; i < nbins_; ++i) {
-                        if (cumulative[i + 1] >= target) {
-                            bin = i;
-                            break;
-                        }
-                    }
+                    // Find the largest i such that cumulative[i] <= target < cumulative[i+1]
+                    auto it = std::lower_bound(cumulative.begin(), cumulative.end(), target);
+                    int bin = std::max(0, static_cast<int>(std::distance(cumulative.begin(), it)) - 1);
+                    bin = std::clamp(bin, 0, nbins_ - 1);
 
                     // Linear interpolation within the bin
                     const double delta = cumulative[bin + 1] - cumulative[bin];
