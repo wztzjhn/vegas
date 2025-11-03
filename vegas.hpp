@@ -20,9 +20,9 @@ namespace vegas
         int ncomp     = 1;         // Number of output components (integrands)
         int maxeval   = 1000000;   // Maximum total evaluations
         int niter     = 10;        // Number of iterations
+        double α      = 1.5;       // Grid refinement parameter (0.5-2.0). α > 1: focuses on peaks, α < 1: more conservative
         int nbins     = 50;        // Number of bins per dimension
         int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
-        double α      = 1.5;       // Grid refinement parameter (0.5-2.0). α > 1: focuses on peaks, α < 1: more conservative
         double rtol   = 1e-3;      // Relative tolerance
         double atol   = 1e-10;     // Absolute tolerance
         int verbose   = 0;         // Verbosity level (0=silent, 1=iterations, 2=detailed)
@@ -167,10 +167,6 @@ namespace vegas
             // Handle integration bounds
             std::vector<double> xmin = config.xmin;
             std::vector<double> xmax = config.xmax;
-
-            // Default to [0,1]^ndim if not specified
-            if (xmin.empty()) xmin.assign(ndim_, 0.0);
-            if (xmax.empty()) xmax.assign(ndim_, 1.0);
 
             // Validate bounds
             if (static_cast<int>(xmin.size()) != ndim_ ||
@@ -456,12 +452,50 @@ namespace vegas
      *
      * @param integrand Function with signature void(const std::vector<double>& x, std::vector<double>& f)
      *                  where x is the input point in [xmin,xmax]^ndim and f is the output vector of size ncomp
-     * @param config Configuration parameters
+     * @param xmin Lower integration bounds
+     * @param xmax Upper integration bounds
+     * @param ncomp Number of output components (integrands)
+     * @param maxeval Maximum total number of evaluations
+     * @param niter Number of refinement iterations
+     * @param alpha Grid refinement parameter (0.5-2.0): >1 focuses on peaks, <1 more conservative
+     * @param seed Random seed for reproducibilityc
+     * @param rtol Relative tolerance for convergence
+     * @param atol Absolute tolerance for convergence
+     * @param nbins Number of bins per dimension for importance sampling grid
+     * @param nstrat Number of stratifications per dimension (0 = auto)
+     * @param verbose Verbosity level (0=silent, 1=iterations, 2=detailed)
      * @return Result structure with integrals and errors
      */
     template <typename Integrand>
-    Result integrate(Integrand &&integrand, const Config &config = Config{})
+    Result integrate(Integrand &&integrand, const std::vector<double> &xmin, const std::vector<double> &xmax,
+        int ncomp = 1,
+        int maxeval = 1000000,
+        int niter = 10,
+        double alpha = 1.5,
+        uint64_t seed = 123456789,
+        double rtol = 1e-3,
+        double atol = 1e-10,
+        int nbins = 50,
+        int nstrat = 0,
+        int verbose = 0)
     {
+        if (xmin.empty()) throw std::invalid_argument("xmin must not be empty");
+        if (xmin.size() != xmax.size()) throw std::invalid_argument("xmin and xmax must have the same size");
+        Config config;
+        config.ndim = static_cast<int>(xmin.size());
+        config.ncomp = ncomp;
+        config.maxeval = maxeval;
+        config.niter = niter;
+        config.xmin = xmin;
+        config.xmax = xmax;
+        config.rtol = rtol;
+        config.atol = atol;
+        config.nbins = nbins;
+        config.nstrat = nstrat;
+        config.α = alpha;
+        config.verbose = verbose;
+        config.seed = seed;
+
         VegasState state(config);
         return state.integrate(std::forward<Integrand>(integrand), config);
     }
@@ -471,17 +505,116 @@ namespace vegas
      *
      * @param integrand Function with signature void(const std::vector<double>& x,
      *                  std::vector<double>& f, void* userdata)
-     * @param config Configuration parameters
      * @param userdata Pointer to user data passed to integrand
+     * @param xmin Lower integration bounds
+     * @param xmax Upper integration bounds
+     * @param ncomp Number of output components (integrands)
+     * @param maxeval Maximum total number of evaluations
+     * @param niter Number of refinement iterations\
+     * @param alpha Grid refinement parameter (0.5-2.0): >1 focuses on peaks, <1 more conservative
+     * @param seed Random seed for reproducibility
+     * @param rtol Relative tolerance for convergence
+     * @param atol Absolute tolerance for convergence
+     * @param nbins Number of bins per dimension for importance sampling grid
+     * @param nstrat Number of stratifications per dimension (0 = auto)
+     * @param verbose Verbosity level (0=silent, 1=iterations, 2=detailed)
      * @return Result structure with integrals and errors
      */
     template <typename Integrand, typename UserData>
-    Result integrate_with_data(Integrand &&integrand, const Config &config, UserData *userdata)
+    Result integrate_with_data(Integrand &&integrand,UserData *userdata,
+        const std::vector<double> &xmin, const std::vector<double> &xmax,
+        int ncomp = 1,
+        int maxeval = 1000000,
+        int niter = 10,
+        double alpha = 1.5,
+        uint64_t seed = 123456789,
+        double rtol = 1e-3,
+        double atol = 1e-10,
+        int nbins = 50,
+        int nstrat = 0,
+        int verbose = 0)
     {
         auto wrapped = [&integrand, userdata](const std::vector<double> &x, std::vector<double> &f)
         {
             integrand(x, f, userdata);
         };
-        return integrate(wrapped, config);
+        return integrate(wrapped, xmin, xmax, ncomp, maxeval, niter, alpha, seed,
+                         rtol, atol, nbins, nstrat, verbose);
+    }
+
+    /**
+     * Convenience function for integration over [0,1]^ndim
+     *
+     * @param integrand Function with signature void(const std::vector<double>& x, std::vector<double>& f)
+     * @param ndim Number of dimensions
+     * @param ncomp Number of output components (integrands)
+     * @param maxeval Maximum total number of evaluations
+     * @param niter Number of refinement iterations
+     * @param alpha Grid refinement parameter (0.5-2.0): >1 focuses on peaks, <1 more conservative
+     * @param seed Random seed for reproducibility
+     * @param rtol Relative tolerance for convergence
+     * @param atol Absolute tolerance for convergence
+     * @param nbins Number of bins per dimension for importance sampling grid
+     * @param nstrat Number of stratifications per dimension (0 = auto)
+     * @param verbose Verbosity level (0=silent, 1=iterations, 2=detailed)
+     * @return Result structure with integrals and errors
+     */
+    template <typename Integrand>
+    Result integrate(Integrand &&integrand,
+        int ndim,
+        int ncomp = 1,
+        int maxeval = 1000000,
+        int niter = 10,
+        double alpha = 1.5,
+        uint64_t seed = 123456789,
+        double rtol = 1e-3,
+        double atol = 1e-10,
+        int nbins = 50,
+        int nstrat = 0,
+        int verbose = 0)
+    {
+        std::vector xmin(ndim, 0.0);
+        std::vector xmax(ndim, 1.0);
+        return integrate(std::forward<Integrand>(integrand), xmin, xmax, ncomp, maxeval,
+                        niter, alpha, seed, rtol, atol, nbins, nstrat, verbose);
+    }
+
+    /**
+     * Convenience function for integration over [0,1]^ndim with userdata
+     *
+     * @param integrand Function with signature void(const std::vector<double>& x,
+     *                  std::vector<double>& f, void* userdata)
+     * @param userdata Pointer to user data passed to integrand
+     * @param ndim Number of dimensions
+     * @param ncomp Number of output components (integrands)
+     * @param maxeval Maximum total number of evaluations
+     * @param niter Number of refinement iterations
+     * @param alpha Grid refinement parameter (0.5-2.0): >1 focuses on peaks, <1 more conservative
+     * @param seed Random seed for reproducibility
+     * @param rtol Relative tolerance for convergence
+     * @param atol Absolute tolerance for convergence
+     * @param nbins Number of bins per dimension for importance sampling grid
+     * @param nstrat Number of stratifications per dimension (0 = auto)
+     * @param verbose Verbosity level (0=silent, 1=iterations, 2=detailed)
+     * @return Result structure with integrals and errors
+     */
+    template <typename Integrand, typename UserData>
+    Result integrate_with_data(Integrand &&integrand, UserData *userdata,
+        int ndim,
+        int ncomp = 1,
+        int maxeval = 1000000,
+        int niter = 10,
+        double alpha = 1.5,
+        uint64_t seed = 123456789,
+        double rtol = 1e-3,
+        double atol = 1e-10,
+        int nbins = 50,
+        int nstrat = 0,
+        int verbose = 0)
+    {
+        std::vector xmin(ndim, 0.0);
+        std::vector xmax(ndim, 1.0);
+        return integrate_with_data(std::forward<Integrand>(integrand), userdata, xmin, xmax,
+                                   ncomp, maxeval, niter, alpha, seed, rtol, atol, nbins, nstrat, verbose);
     }
 } // namespace vegas

@@ -58,14 +58,7 @@ void test_smooth_approximation()
         f[0] = A / denom * (M_PI * M_PI * M_PI);
     };
 
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 1000000;
-    config.niter = 10;
-    config.verbose = 0;
-
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3);
 
     std::cout << "Regularized result (eps=" << eps << "): "
         << result.integral[0] << " ± " << result.error[0] << "\n";
@@ -81,93 +74,93 @@ void test_gsl_ising_integral()
 
     double exact = 1.3932039296856768591842462603255;
 
+    // Integration over [0, π]^3
+    const std::vector xmin = {0.0, 0.0, 0.0};
+    const std::vector xmax = {M_PI, M_PI, M_PI};
+
     // EXACT same integrand as GSL (no modifications!)
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
-        double k0 = M_PI * x[0];
-        double k1 = M_PI * x[1];
-        double k2 = M_PI * x[2];
+        // x is already in [0, π]^3
+        double k0 = x[0];
+        double k1 = x[1];
+        double k2 = x[2];
 
-        double A = 1.0 / (M_PI * M_PI * M_PI);
         double denom = 1.0 - cos(k0) * cos(k1) * cos(k2);
-
-        f[0] = A / denom * (M_PI * M_PI * M_PI); // Jacobian
+        f[0] = 1.0 / (M_PI * M_PI * M_PI * denom);
     };
 
     // Test with different configurations
-    std::vector<std::pair<std::string, vegas::Config>> configs;
+    std::cout << "\n--- Configuration 1: Default (α=1.5) ---\n";
+    auto result1 = vegas::integrate(integrand, xmin, xmax, 1, 1000000, 10, 1.5, 0);
 
-    // Config 1: Original
-    vegas::Config cfg1;
-    cfg1.ndim = 3;
-    cfg1.ncomp = 1;
-    cfg1.maxeval = 1000000;
-    cfg1.niter = 10;
-    cfg1.verbose = 0;
-    cfg1.α = 1.5;
-    cfg1.seed = 0;
-    configs.push_back({"Original (seed=0)", cfg1});
+    double error1 = result1.integral[0] - exact;
+    double sigma1 = std::abs(error1) / result1.error[0];
 
-    // Config 2: Different seed
-    vegas::Config cfg2 = cfg1;
-    cfg2.seed = 12345;
-    configs.push_back({"Different seed", cfg2});
+    std::cout << "Result = " << std::fixed << std::setprecision(6)
+              << result1.integral[0] << " ± " << result1.error[0] << "\n";
+    std::cout << "Error  = " << error1 << " (" << sigma1 << " sigma)\n";
+    std::cout << "χ²     = " << result1.chi2[0] << "\n";
 
-    // Config 3: More samples
-    vegas::Config cfg3 = cfg1;
-    cfg3.maxeval = 2000000;
-    cfg3.seed = 0;
-    configs.push_back({"More samples", cfg3});
+    std::cout << "\n--- Configuration 2: Different seed ---\n";
+    auto result2 = vegas::integrate(integrand, xmin, xmax, 1, 1000000, 10, 1.5, 12345);
 
-    // Config 4: Lower alpha (less aggressive adaptation)
-    vegas::Config cfg4 = cfg1;
-    cfg4.α = 0.5;
-    cfg4.seed = 0;
-    configs.push_back({"Lower alpha=0.5", cfg4});
+    double error2 = result2.integral[0] - exact;
+    double sigma2 = std::abs(error2) / result2.error[0];
 
-    // Config 5: Higher alpha
-    vegas::Config cfg5 = cfg1;
-    cfg5.α = 2.0;
-    cfg5.seed = 0;
-    configs.push_back({"Higher alpha=2.0", cfg5});
+    std::cout << "Result = " << std::fixed << std::setprecision(6)
+              << result2.integral[0] << " ± " << result2.error[0] << "\n";
+    std::cout << "Error  = " << error2 << " (" << sigma2 << " sigma)\n";
+    std::cout << "χ²     = " << result2.chi2[0] << "\n";
 
-    // Run all configurations
-    for (const auto &[name, config] : configs) {
-        std::cout << "\n" << name << ":\n";
-        std::cout << std::string(40, '-') << "\n";
+    std::cout << "\n--- Configuration 3: More samples (2M) ---\n";
+    auto result3 = vegas::integrate(integrand, xmin, xmax, 1, 2000000, 10, 1.5, 0);
 
-        auto result = vegas::integrate(integrand, config);
+    double error3 = result3.integral[0] - exact;
+    double sigma3 = std::abs(error3) / result3.error[0];
 
-        double error = result.integral[0] - exact;
-        double sigma = fabs(error) / result.error[0];
+    std::cout << "Result = " << std::fixed << std::setprecision(6)
+              << result3.integral[0] << " ± " << result3.error[0] << "\n";
+    std::cout << "Error  = " << error3 << " (" << sigma3 << " sigma)\n";
+    std::cout << "χ²     = " << result3.chi2[0] << "\n";
 
-        std::cout << "Result = " << std::fixed << std::setprecision(6)
-            << result.integral[0] << " ± " << result.error[0] << "\n";
-        std::cout << "Error  = " << error << " (" << sigma << " sigma)\n";
-        std::cout << "χ²   = " << result.chi2[0] << "\n";
-    }
+    std::cout << "\n--- Configuration 4: Lower α=0.5 (conservative) ---\n";
+    auto result4 = vegas::integrate(integrand, xmin, xmax, 1, 1000000, 10, 0.5, 0);
+
+    double error4 = result4.integral[0] - exact;
+    double sigma4 = std::abs(error4) / result4.error[0];
+
+    std::cout << "Result = " << std::fixed << std::setprecision(6)
+              << result4.integral[0] << " ± " << result4.error[0] << "\n";
+    std::cout << "Error  = " << error4 << " (" << sigma4 << " sigma)\n";
+    std::cout << "χ²     = " << result4.chi2[0] << "\n";
+
+    std::cout << "\n--- Configuration 5: Higher α=2.0 (aggressive) ---\n";
+    auto result5 = vegas::integrate(integrand, xmin, xmax, 1, 1000000, 10, 2.0, 0);
+
+    double error5 = result5.integral[0] - exact;
+    double sigma5 = std::abs(error5) / result5.error[0];
+
+    std::cout << "Result = " << std::fixed << std::setprecision(6)
+              << result5.integral[0] << " ± " << result5.error[0] << "\n";
+    std::cout << "Error  = " << error5 << " (" << sigma5 << " sigma)\n";
+    std::cout << "χ²     = " << result5.chi2[0] << "\n";
 
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << "GSL reference: 1.393281 ± 0.000362\n";
+    std::cout << "Exact value:   " << std::setprecision(16) << exact << "\n";
     std::cout << std::string(60, '=') << "\n";
 }
 
 // Test 1: Simple polynomial x*y over [0,1]^2
 void test_polynomial_2d()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 250000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         f[0] = x[0] * x[1];
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2, 1, 250000, 5);
 
     // Expected: ∫∫ x*y dx dy = 1/4
     print_result("Test 1: Polynomial x*y", result, {0.25});
@@ -176,13 +169,6 @@ void test_polynomial_2d()
 // Test 2: Gaussian in 3D
 void test_gaussian_3d()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 500000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         double sum = 0.0;
@@ -193,7 +179,7 @@ void test_gaussian_3d()
         f[0] = std::exp(-sum);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
 
     // Expected: [∫_0^1 exp(-(3(x-0.5))^2) dx]^3
     // = [(1/3) * ∫_{-1.5}^{1.5} exp(-u^2) du]^3
@@ -205,14 +191,6 @@ void test_gaussian_3d()
 // Test 3: Corner peak (tests importance sampling)
 void test_corner_peak()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 1000000;
-    config.niter = 10;
-    config.verbose = 0;
-    config.α = 1.5; // More aggressive grid adaptation
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // Peaks near origin
@@ -220,7 +198,7 @@ void test_corner_peak()
         f[0] = 1.0 / ((x[0] + a) * (x[1] + a));
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2);
 
     // Expected: log((1+a)/a)^2
     double a = 0.1;
@@ -231,19 +209,12 @@ void test_corner_peak()
 // Test 4: Oscillatory function
 void test_oscillatory()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 1600000;
-    config.niter = 8;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         f[0] = std::cos(10.0 * M_PI * x[0]) * std::cos(10.0 * M_PI * x[1]);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2, 1, 1600000, 8);
 
     // Expected: (sin(10π)/(10π))^2 ≈ 0
     double expected = std::pow(std::sin(10.0 * M_PI) / (10.0 * M_PI), 2.0);
@@ -253,13 +224,6 @@ void test_oscillatory()
 // Test 5: Product of sines (separable integral)
 void test_product_sines()
 {
-    vegas::Config config;
-    config.ndim = 4;
-    config.ncomp = 1;
-    config.maxeval = 500000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         f[0] = 1.0;
@@ -268,7 +232,7 @@ void test_product_sines()
         }
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 4, 1, 500000, 5);
 
     // Expected: (2/π)^4
     double expected = std::pow(2.0 / M_PI, 4.0);
@@ -278,20 +242,13 @@ void test_product_sines()
 // Test 6: Discontinuous function
 void test_discontinuous()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 1000000;
-    config.niter = 10;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // Step function
         f[0] = (x[0] > 0.5 && x[1] > 0.5) ? 1.0 : 0.0;
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2);
 
     // Expected: 0.25 (area of quarter square)
     print_result("Test 6: Discontinuous (Step)", result, {0.25});
@@ -300,29 +257,23 @@ void test_discontinuous()
 // Test 7: Sphere volume in n dimensions
 void test_sphere_volume()
 {
-    vegas::Config config;
-    config.ndim = 5;
-    config.ncomp = 1;
-    config.maxeval = 4000000;
-    config.niter = 8;
-    config.verbose = 0;
+    const int n = 5;
+    const std::vector xmin(n, -1.0);  // Native [-1,1]^n support
+    const std::vector xmax(n, 1.0);
 
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
-        // Map [0,1]^n to [-1,1]^n and check if inside unit sphere
+        // Check if inside unit sphere (x is already in [-1,1]^n)
         double r2 = 0.0;
         for (const auto &xi : x) {
-            double z = 2.0 * xi - 1.0;
-            r2 += z * z;
+            r2 += xi * xi;
         }
-        f[0] = (r2 <= 1.0) ? std::pow(2.0, x.size()) : 0.0; // Jacobian for [-1,1]^n
+        f[0] = r2 <= 1.0 ? 1.0 : 0.0;
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, xmin, xmax, 1, 4000000, 8);
 
     // Expected: π^(n/2) / Γ(n/2 + 1)
-    // For n=5: π^2.5 / Γ(3.5) = π^2.5 / (2.5 * 1.5 * 0.5 * sqrt(π))
-    int n = 5;
     double expected = std::pow(M_PI, n / 2.0) / std::tgamma(n / 2.0 + 1.0);
     print_result("Test 7: Sphere Volume (5D)", result, {expected});
 }
@@ -330,13 +281,6 @@ void test_sphere_volume()
 // Test 8: Multiple components
 void test_multiple_components()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 3;
-    config.maxeval = 500000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         f[0] = x[0] * x[0] + x[1] * x[1]; // 2/3
@@ -344,7 +288,7 @@ void test_multiple_components()
         f[2] = std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]); // 4/π^2
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2, 3, 500000, 5);
 
     double e = std::exp(1.0);
     std::vector<double> expected = {
@@ -359,13 +303,6 @@ void test_multiple_components()
 // Test 9: Tsuda's function (difficult peak)
 void test_tsuda()
 {
-    vegas::Config config;
-    config.ndim = 4;
-    config.ncomp = 1;
-    config.maxeval = 5000000;
-    config.niter = 10;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         double a = 0.1;
@@ -376,7 +313,7 @@ void test_tsuda()
         f[0] = prod;
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 4, 1, 5000000, 10);
 
     // Expected: (arctan(0.5/a) + arctan(0.5/a))^4 / a^4
     double a = 0.1;
@@ -388,13 +325,6 @@ void test_tsuda()
 // Test 10: Genz oscillatory test function
 void test_genz_oscillatory()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 1600000;
-    config.niter = 8;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // Genz "Oscillatory" test function
@@ -406,7 +336,7 @@ void test_genz_oscillatory()
         f[0] = std::cos(2.0 * M_PI * u[0] + sum);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3, 1, 1600000, 8);
 
     // Analytical solution is complex, just verify it runs
     print_result("Test 10: Genz Oscillatory", result, {}, false);
@@ -415,28 +345,24 @@ void test_genz_oscillatory()
 // Test 11: Camel function (multiple peaks)
 void test_camel()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 2000000;
-    config.niter = 10;
-    config.verbose = 0;
+    const std::vector xmin = {-2.0, -2.0};  // Native [-2,2]^2 support
+    const std::vector xmax = {2.0, 2.0};
 
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
-        // Map to [-2, 2]
-        double x1 = 4.0 * x[0] - 2.0;
-        double x2 = 4.0 * x[1] - 2.0;
+        // x is already in [-2, 2]^2
+        double x1 = x[0];
+        double x2 = x[1];
 
         // Six-hump camel function (negated to make peaks)
         double term1 = (4.0 - 2.1 * x1 * x1 + std::pow(x1, 4.0) / 3.0) * x1 * x1;
         double term2 = x1 * x2;
         double term3 = (-4.0 + 4.0 * x2 * x2) * x2 * x2;
 
-        f[0] = std::exp(-(term1 + term2 + term3)) * 16.0; // Include Jacobian
+        f[0] = std::exp(-(term1 + term2 + term3));
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000, 10);
 
     print_result("Test 11: Six-Hump Camel (multiple peaks)", result, {}, false);
 }
@@ -444,13 +370,6 @@ void test_camel()
 // Test 12: High-dimensional Gaussian with varying widths
 void test_anisotropic_gaussian()
 {
-    vegas::Config config;
-    config.ndim = 6;
-    config.ncomp = 1;
-    config.maxeval = 10000000;
-    config.niter = 10;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // Different widths in different dimensions
@@ -463,7 +382,7 @@ void test_anisotropic_gaussian()
         f[0] = std::exp(-0.5 * sum);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 6, 1, 10000000, 10);
 
     // Expected: ∏_i [∫_0^1 exp(-0.5*((x-0.5)/σ_i)^2) dx]
     // = ∏_i [σ_i * ∫_{-0.5/σ_i}^{0.5/σ_i} exp(-0.5*u^2) du]
@@ -480,14 +399,6 @@ void test_anisotropic_gaussian()
 // Test 13: Function with near-singularity
 void test_near_singularity()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 5000000;
-    config.niter = 10;
-    config.verbose = 0;
-    config.α = 2.0; // More aggressive adaptation
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         double epsilon = 0.01;
@@ -495,7 +406,7 @@ void test_near_singularity()
         f[0] = 1.0 / std::sqrt(r2 + epsilon);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2, 1, 5000000, 10, 2.0);
 
     // Approximate expected value (numerical)
     print_result("Test 13: Near-Singularity", result, {}, false);
@@ -504,13 +415,6 @@ void test_near_singularity()
 // Test 14: Exponential decay product
 void test_exponential_product()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 250000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         double lambda = 2.0;
@@ -520,7 +424,7 @@ void test_exponential_product()
         }
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3, 1, 250000, 5);
 
     // Expected: (1 - e^(-λ))^n
     double lambda = 2.0;
@@ -531,13 +435,6 @@ void test_exponential_product()
 // Test 15: Box function (tests stratification)
 void test_box_function()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 500000;
-    config.niter = 5;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // 1 inside a box, 0 outside
@@ -548,7 +445,7 @@ void test_box_function()
         f[0] = inside ? 1.0 : 0.0;
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
 
     // Expected: 0.5^3 = 0.125
     print_result("Test 15: Box Function (3D)", result, {0.125});
@@ -557,13 +454,6 @@ void test_box_function()
 // Test 16: Very high dimensional (stress test)
 void test_high_dimensional()
 {
-    vegas::Config config;
-    config.ndim = 10;
-    config.ncomp = 1;
-    config.maxeval = 16000000;
-    config.niter = 8;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // Simple product to avoid underflow
@@ -573,7 +463,7 @@ void test_high_dimensional()
         }
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 10, 1, 16000000, 8);
 
     // Expected: 1 (product of ten integrals of 2x from 0 to 1 = 1^10)
     print_result("Test 16: High Dimensional (10D)", result, {1.0});
@@ -582,12 +472,8 @@ void test_high_dimensional()
 // Test 17: Numerical stability test (very small values)
 void test_small_values()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 500000;
-    config.niter = 5;
-    config.verbose = 0;
+    const std::vector xmin(2, 0.0);
+    const std::vector xmax(2, 1.0);
 
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
@@ -596,7 +482,7 @@ void test_small_values()
         f[0] = 1e-10 * std::exp(-100.0 * r2);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, xmin, xmax, 1, 500000, 5);
 
     // Expected: approximately 1e-10 * π / 100
     double expected = 1e-10 * M_PI / 100.0;
@@ -606,13 +492,6 @@ void test_small_values()
 // Test 18: Mixed scale function
 void test_mixed_scale()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 2;
-    config.maxeval = 1600000;
-    config.niter = 8;
-    config.verbose = 0;
-
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // One component is large, another is small
@@ -620,7 +499,7 @@ void test_mixed_scale()
         f[1] = 1e-6 * std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]) * std::sin(M_PI * x[2]);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 3, 2, 1600000, 8);
 
     std::vector<double> expected = {
         1e6 * 0.125, // (1/2)^3
@@ -632,16 +511,9 @@ void test_mixed_scale()
 // Test 19: Custom boundaries - trigonometric integral
 void test_custom_boundaries_trig()
 {
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = 1;
-    config.maxeval = 1000000;
-    config.niter = 10;
-    config.verbose = 0;
-
     // Integrate over [0, π] × [0, 2π]
-    config.xmin = {0.0, 0.0};
-    config.xmax = {M_PI, 2.0 * M_PI};
+    const std::vector xmin(2, 0.0);
+    const std::vector xmax = {M_PI, 2.0 * M_PI};
 
     auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
     {
@@ -650,7 +522,7 @@ void test_custom_boundaries_trig()
         f[0] = std::sin(x[0]) * std::cos(x[1]);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, xmin, xmax);
 
     // Expected: ∫₀^π sin(x) dx * ∫₀^(2π) cos(y) dy
     //         = [-cos(x)]₀^π * [sin(y)]₀^(2π)
@@ -677,16 +549,9 @@ void test_custom_boundaries_trig()
 // Test 20: Custom boundaries - Gaussian in shifted domain
 void test_custom_boundaries_gaussian()
 {
-    vegas::Config config;
-    config.ndim = 3;
-    config.ncomp = 1;
-    config.maxeval = 2000000;
-    config.niter = 10;
-    config.verbose = 0;
-
     // Integrate over [-3, 3]^3
-    config.xmin = {-3.0, -3.0, -3.0};
-    config.xmax = {3.0, 3.0, 3.0};
+    const std::vector xmin = {-3.0, -3.0, -3.0};
+    const std::vector xmax = {3.0, 3.0, 3.0};
 
     auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
     {
@@ -699,7 +564,7 @@ void test_custom_boundaries_gaussian()
         f[0] = std::exp(-0.5 * sum);
     };
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000);
 
     // Expected: ∏ᵢ ∫₋₃³ exp(-xᵢ²/2) dxᵢ
     //         = [√(2π) * (Φ(3) - Φ(-3))]³
@@ -733,13 +598,6 @@ void test_large_ncomp()
     std::cout << std::string(60, '=') << "\n";
 
     const int num_components = 2000;
-
-    vegas::Config config;
-    config.ndim = 2;
-    config.ncomp = num_components;
-    config.maxeval = 4000000;  // More samples for many components
-    config.niter = 8;
-    config.verbose = 0;
 
     // Pre-compute expected values for all components
     std::vector<double> expected(num_components);
@@ -778,7 +636,7 @@ void test_large_ncomp()
     std::cout << "Computing " << num_components << " integrals...\n";
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto result = vegas::integrate(integrand, config);
+    auto result = vegas::integrate(integrand, 2, num_components, 4000000, 8);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
