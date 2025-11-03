@@ -18,7 +18,7 @@ namespace vegas
     struct Config {
         int ndim      = 2;         // Number of input dimensions
         int ncomp     = 1;         // Number of output components (integrands)
-        int neval     = 100000;    // Approximate number of evaluations per iteration
+        int maxeval   = 1000000;   // Maximum total evaluations
         int niter     = 10;        // Number of iterations
         int nbins     = 50;        // Number of bins per dimension
         int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
@@ -161,6 +161,9 @@ namespace vegas
         template <typename Integrand>
         Result integrate(Integrand &&integrand, const Config &config)
         {
+            const int neval = config.maxeval / config.niter;
+            if (neval < 1000) throw std::invalid_argument("maxeval/niter must be >= 1000");
+
             // Handle integration bounds
             std::vector<double> xmin = config.xmin;
             std::vector<double> xmax = config.xmax;
@@ -188,7 +191,7 @@ namespace vegas
             // Calculate stratification if not specified
             int nstrat = nstrat_;
             if (nstrat <= 0) {
-                nstrat = static_cast<int>(std::pow(config.neval / 2.0, 1.0 / ndim_));
+                nstrat = static_cast<int>(std::pow(neval / 2.0, 1.0 / ndim_));
                 nstrat = std::clamp(nstrat, 1, 10);
             }
 
@@ -212,9 +215,9 @@ namespace vegas
             }
 
             // Ensure we don't have too many strata relative to samples
-            if (nstrat_total_ll > config.neval / 2) {
+            if (nstrat_total_ll > neval / 2) {
                 // Too many strata, reduce nstrat
-                nstrat = static_cast<int>(std::pow(config.neval / 2.0, 1.0 / ndim_));
+                nstrat = static_cast<int>(std::pow(neval / 2.0, 1.0 / ndim_));
                 nstrat = std::max(1, nstrat);
                 nstrat_total_ll = 1;
                 for (int i = 0; i < ndim_; ++i) {
@@ -228,7 +231,7 @@ namespace vegas
             }
 
             int nstrat_total = static_cast<int>(nstrat_total_ll);
-            int ncalls_per_strat = std::max(config.neval / nstrat_total, 2);
+            int ncalls_per_strat = std::max(neval / nstrat_total, 2);
 
             Result result(ncomp_);
 

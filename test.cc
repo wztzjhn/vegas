@@ -61,7 +61,7 @@ void test_smooth_approximation()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 1000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -101,7 +101,7 @@ void test_gsl_ising_integral()
     vegas::Config cfg1;
     cfg1.ndim = 3;
     cfg1.ncomp = 1;
-    cfg1.neval = 100000;
+    cfg1.maxeval = 1000000;
     cfg1.niter = 10;
     cfg1.verbose = 0;
     cfg1.α = 1.5;
@@ -115,7 +115,7 @@ void test_gsl_ising_integral()
 
     // Config 3: More samples
     vegas::Config cfg3 = cfg1;
-    cfg3.neval = 200000;
+    cfg3.maxeval = 2000000;
     cfg3.seed = 0;
     configs.push_back({"More samples", cfg3});
 
@@ -158,7 +158,7 @@ void test_polynomial_2d()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 50000;
+    config.maxeval = 250000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -179,7 +179,7 @@ void test_gaussian_3d()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 500000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -208,7 +208,7 @@ void test_corner_peak()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 1000000;
     config.niter = 10;
     config.verbose = 0;
     config.α = 1.5; // More aggressive grid adaptation
@@ -234,7 +234,7 @@ void test_oscillatory()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 200000;
+    config.maxeval = 1600000;
     config.niter = 8;
     config.verbose = 0;
 
@@ -256,7 +256,7 @@ void test_product_sines()
     vegas::Config config;
     config.ndim = 4;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 500000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -281,7 +281,7 @@ void test_discontinuous()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 1000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -303,7 +303,7 @@ void test_sphere_volume()
     vegas::Config config;
     config.ndim = 5;
     config.ncomp = 1;
-    config.neval = 500000;
+    config.maxeval = 4000000;
     config.niter = 8;
     config.verbose = 0;
 
@@ -333,7 +333,7 @@ void test_multiple_components()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 3;
-    config.neval = 100000;
+    config.maxeval = 500000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -362,7 +362,7 @@ void test_tsuda()
     vegas::Config config;
     config.ndim = 4;
     config.ncomp = 1;
-    config.neval = 500000;
+    config.maxeval = 5000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -391,7 +391,7 @@ void test_genz_oscillatory()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 200000;
+    config.maxeval = 1600000;
     config.niter = 8;
     config.verbose = 0;
 
@@ -418,7 +418,7 @@ void test_camel()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 200000;
+    config.maxeval = 2000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -447,7 +447,7 @@ void test_anisotropic_gaussian()
     vegas::Config config;
     config.ndim = 6;
     config.ncomp = 1;
-    config.neval = 1000000;
+    config.maxeval = 10000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -483,7 +483,7 @@ void test_near_singularity()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 500000;
+    config.maxeval = 5000000;
     config.niter = 10;
     config.verbose = 0;
     config.α = 2.0; // More aggressive adaptation
@@ -507,7 +507,7 @@ void test_exponential_product()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 50000;
+    config.maxeval = 250000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -534,7 +534,7 @@ void test_box_function()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 500000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -560,7 +560,7 @@ void test_high_dimensional()
     vegas::Config config;
     config.ndim = 10;
     config.ncomp = 1;
-    config.neval = 2000000;
+    config.maxeval = 16000000;
     config.niter = 8;
     config.verbose = 0;
 
@@ -585,7 +585,7 @@ void test_small_values()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 500000;
     config.niter = 5;
     config.verbose = 0;
 
@@ -609,7 +609,7 @@ void test_mixed_scale()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 2;
-    config.neval = 200000;
+    config.maxeval = 1600000;
     config.niter = 8;
     config.verbose = 0;
 
@@ -635,7 +635,7 @@ void test_custom_boundaries_trig()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = 1;
-    config.neval = 100000;
+    config.maxeval = 1000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -680,7 +680,7 @@ void test_custom_boundaries_gaussian()
     vegas::Config config;
     config.ndim = 3;
     config.ncomp = 1;
-    config.neval = 200000;
+    config.maxeval = 2000000;
     config.niter = 10;
     config.verbose = 0;
 
@@ -737,7 +737,7 @@ void test_large_ncomp()
     vegas::Config config;
     config.ndim = 2;
     config.ncomp = num_components;
-    config.neval = 500000;  // More samples for many components
+    config.maxeval = 4000000;  // More samples for many components
     config.niter = 8;
     config.verbose = 0;
 
