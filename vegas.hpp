@@ -1,9 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -131,14 +129,14 @@ namespace vegas
 
                     // Binary search for the bin containing target
                     // Find the largest i such that cumulative[i] <= target < cumulative[i+1]
-                    auto it = std::lower_bound(cumulative.begin(), cumulative.end(), target);
+                    const auto it = std::lower_bound(cumulative.begin(), cumulative.end(), target);
                     int bin = std::max(0, static_cast<int>(std::distance(cumulative.begin(), it)) - 1);
                     bin = std::clamp(bin, 0, nbins_ - 1);
 
                     // Linear interpolation within the bin
                     const double delta = cumulative[bin + 1] - cumulative[bin];
                     if (delta > 1e-10) {
-                        double frac = (target - cumulative[bin]) / delta;
+                        const double frac = (target - cumulative[bin]) / delta;
                         xi_new[k] = xi_[dim][bin] + frac * (xi_[dim][bin + 1] - xi_[dim][bin]);
                     } else {
                         // Degenerate case: distribute uniformly
@@ -242,9 +240,9 @@ namespace vegas
                 std::vector iter_sum2(ncomp_, 0.0);
 
                 // Bin accumulator for grid refinement (now properly 2D per dimension)
-                std::vector<std::vector<std::vector<double>>> bin_accumulator(
+                std::vector bin_accumulator(
                     ndim_,
-                    std::vector<std::vector<double>>(nbins_, std::vector<double>(ncomp_, 0.0))
+                    std::vector(nbins_, std::vector(ncomp_, 0.0))
                 );
 
                 // Loop over stratifications
@@ -252,8 +250,8 @@ namespace vegas
 
                 for (int istrat = 0; istrat < nstrat_total; ++istrat) {
                     // Welford's online algorithm for mean and variance
-                    std::vector<double> mean(ncomp_, 0.0);
-                    std::vector<double> m2(ncomp_, 0.0);
+                    std::vector mean(ncomp_, 0.0);
+                    std::vector m2(ncomp_, 0.0);
 
                     // Sample within this stratum
                     for (int icall = 0; icall < ncalls_per_strat; ++icall) {
@@ -313,7 +311,7 @@ namespace vegas
 
                     // Compute variance from Welford's m2
                     for (int comp = 0; comp < ncomp_; ++comp) {
-                        double variance = (ncalls_per_strat > 1) ? m2[comp] / (ncalls_per_strat - 1) : 0.0;
+                        double variance = ncalls_per_strat > 1 ? m2[comp] / (ncalls_per_strat - 1) : 0.0;
 
                         // Ensure non-negative (should already be, but safety check)
                         if (variance < 0.0) variance = 0.0;
