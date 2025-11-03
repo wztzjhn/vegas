@@ -37,12 +37,12 @@ namespace vegas
     struct Result {
         std::vector<double> integral; // Integral estimates for each component
         std::vector<double> error;    // Error estimates for each component
-        std::vector<double> prob;     // Chi-squared probabilities
+        std::vector<double> chi2;     // Reduced chi-squared (χ²/dof) for goodness of fit
         int neval = 0;                // Actual number of evaluations
         bool converged = true;        // True if all components converged
 
         Result() = default;
-        explicit Result(int ncomp) : integral(ncomp), error(ncomp), prob(ncomp) {}
+        explicit Result(int ncomp) : integral(ncomp), error(ncomp), chi2(ncomp) {}
     };
 
     /** Internal state for VEGAS algorithm */
@@ -84,51 +84,72 @@ namespace vegas
             sum_χ2_.assign(ncomp_, 0.0);
         }
 
-        void refine_grid(const std::vector<std::vector<double>> &bin_accumulator)
+        void refine_grid(const std::vector<std::vector<std::vector<double>>> &bin_accumulator)
         {
-            if (static_cast<int>(bin_accumulator.size()) != ndim_ * nbins_) throw std::invalid_argument("bin_accumulator size mismatch");
-            for (const auto &ele : bin_accumulator) {
-                if (static_cast<int>(ele.size()) != ncomp_) throw std::invalid_argument("bin_accumulator size mismatch");
+            if (static_cast<int>(bin_accumulator.size()) != ndim_) {
+                throw std::invalid_argument("bin_accumulator dimension mismatch");
             }
-            const double δ = 1.0 / nbins_;
 
             for (int dim = 0; dim < ndim_; ++dim) {
+                if (static_cast<int>(bin_accumulator[dim].size()) != nbins_) {
+                    throw std::invalid_argument("bin_accumulator bins mismatch");
+                }
+
                 std::vector<double> d_smooth(nbins_);
 
                 // Accumulate across all components
                 for (int i = 0; i < nbins_; ++i) {
                     d_smooth[i] = 0.0;
                     for (int comp = 0; comp < ncomp_; ++comp) {
-                        d_smooth[i] += bin_accumulator[dim * nbins_ + i][comp];
+                        d_smooth[i] += bin_accumulator[dim][i][comp];
                     }
                     d_smooth[i] = std::pow(std::abs(d_smooth[i]) + 1e-30, α_);
                 }
 
                 // Normalize
                 double sum = std::accumulate(d_smooth.begin(), d_smooth.end(), 0.0);
-                // if (sum <= 0.0) sum = 1.0; // Prevent division by zero
+                if (sum <= 0.0) sum = 1.0; // Prevent division by zero
                 for (auto &val : d_smooth) val /= sum;
 
-                // Compute new grid
+                // Compute cumulative distribution
+                std::vector<double> cumulative(nbins_ + 1);
+                cumulative[0] = 0.0;
+                for (int i = 0; i < nbins_; ++i) {
+                    cumulative[i + 1] = cumulative[i] + d_smooth[i];
+                }
+
+                // Ensure the last value is exactly 1.0
+                cumulative[nbins_] = 1.0;
+
+                // Compute a new grid by inverse transform sampling
                 std::vector<double> xi_new(nbins_ + 1);
                 xi_new[0]      = 0.0;
                 xi_new[nbins_] = 1.0;
 
-                int k = 1;
-                double accum = 0.0;
-                double target = δ;
+                for (int k = 1; k < nbins_; ++k) {
+                    double target = static_cast<double>(k) / nbins_;
 
-                for (int i = 0; i < nbins_; ++i) {
-                    accum += d_smooth[i];
-                    while (accum >= target && k < nbins_) {
-                        const double frac = (target - (accum - d_smooth[i])) / (d_smooth[i] + 1e-30);
-                        xi_new[k] = xi_[dim][i] + frac * (xi_[dim][i + 1] - xi_[dim][i]);
-                        ++k;
-                        target += δ;
+                    // Binary search for the bin containing target
+                    int bin = 0;
+                    for (int i = 0; i < nbins_; ++i) {
+                        if (cumulative[i + 1] >= target) {
+                            bin = i;
+                            break;
+                        }
+                    }
+
+                    // Linear interpolation within the bin
+                    const double delta = cumulative[bin + 1] - cumulative[bin];
+                    if (delta > 1e-10) {
+                        double frac = (target - cumulative[bin]) / delta;
+                        xi_new[k] = xi_[dim][bin] + frac * (xi_[dim][bin + 1] - xi_[dim][bin]);
+                    } else {
+                        // Degenerate case: distribute uniformly
+                        xi_new[k] = xi_[dim][bin];
                     }
                 }
 
-                // Ensure monotonicity and fill remaining bins
+                // Enforce strict monotonicity
                 for (int i = 1; i < nbins_; ++i) {
                     if (xi_new[i] <= xi_new[i - 1]) {
                         xi_new[i] = xi_new[i - 1] + (1.0 - xi_new[i - 1]) / (nbins_ - i + 1);
@@ -174,13 +195,26 @@ namespace vegas
                 nstrat = std::clamp(nstrat, 1, 10);
             }
 
-            // Calculate the total number of strata
+            // Calculate the total number of strata with overflow protection
+            const int max_strat = static_cast<int>(std::sqrt(std::numeric_limits<int>::max()));
             long long nstrat_total_ll = 1;
+
             for (int i = 0; i < ndim_; ++i) {
                 nstrat_total_ll *= nstrat;
+                // Early exit if overflow is imminent
+                if (nstrat_total_ll > max_strat) {
+                    // Reduce nstrat to prevent overflow
+                    nstrat = static_cast<int>(std::pow(max_strat, 1.0 / ndim_));
+                    nstrat = std::max(1, nstrat);
+                    nstrat_total_ll = 1;
+                    for (int j = 0; j < ndim_; ++j) {
+                        nstrat_total_ll *= nstrat;
+                    }
+                    break;
+                }
             }
 
-            // Make sure we don't overflow and have reasonable stratification
+            // Ensure we don't have too many strata relative to samples
             if (nstrat_total_ll > config.neval / 2) {
                 // Too many strata, reduce nstrat
                 nstrat = static_cast<int>(std::pow(config.neval / 2.0, 1.0 / ndim_));
@@ -189,6 +223,11 @@ namespace vegas
                 for (int i = 0; i < ndim_; ++i) {
                     nstrat_total_ll *= nstrat;
                 }
+            }
+
+            // Final safety check
+            if (nstrat_total_ll > std::numeric_limits<int>::max()) {
+                throw std::runtime_error("Stratification overflow: reduce dimensions or nstrat");
             }
 
             int nstrat_total = static_cast<int>(nstrat_total_ll);
@@ -206,15 +245,19 @@ namespace vegas
                 std::vector iter_sum(ncomp_, 0.0);
                 std::vector iter_sum2(ncomp_, 0.0);
 
-                // Bin accumulator for grid refinement
-                std::vector bin_accumulator(ndim_ * nbins_, std::vector(ncomp_, 0.0));
+                // Bin accumulator for grid refinement (now properly 2D per dimension)
+                std::vector<std::vector<std::vector<double>>> bin_accumulator(
+                    ndim_,
+                    std::vector<std::vector<double>>(nbins_, std::vector<double>(ncomp_, 0.0))
+                );
 
                 // Loop over stratifications
                 std::vector strat_idx(ndim_, 0);
 
                 for (int istrat = 0; istrat < nstrat_total; ++istrat) {
-                    std::vector strat_sum(ncomp_, 0.0);
-                    std::vector strat_sum2(ncomp_, 0.0);
+                    // Welford's online algorithm for mean and variance
+                    std::vector<double> mean(ncomp_, 0.0);
+                    std::vector<double> m2(ncomp_, 0.0);
 
                     // Sample within this stratum
                     for (int icall = 0; icall < ncalls_per_strat; ++icall) {
@@ -257,32 +300,32 @@ namespace vegas
                             }
                         }
 
-                        // Accumulate
+                        // Welford's algorithm for numerically stable variance
                         for (int comp = 0; comp < ncomp_; ++comp) {
                             double val = f[comp] * jacobian;
-                            strat_sum[comp] += val;
-                            strat_sum2[comp] += val * val;
+                            double delta = val - mean[comp];
+                            mean[comp] += delta / (icall + 1);
+                            double delta2 = val - mean[comp];
+                            m2[comp] += delta * delta2;
 
                             // Accumulate for grid refinement
                             for (int dim = 0; dim < ndim_; ++dim) {
-                                bin_accumulator[dim * nbins_ + bin_idx[dim]][comp] += std::abs(val);
+                                bin_accumulator[dim][bin_idx[dim]][comp] += std::abs(val);
                             }
                         }
                     }
 
-                    // Update iteration statistics with better variance handling
+                    // Compute variance from Welford's m2
                     for (int comp = 0; comp < ncomp_; ++comp) {
-                        double mean = strat_sum[comp] / ncalls_per_strat;
-                        double mean2 = strat_sum2[comp] / ncalls_per_strat;
-                        double variance = mean2 - mean * mean;
+                        double variance = (ncalls_per_strat > 1) ? m2[comp] / (ncalls_per_strat - 1) : 0.0;
 
-                        // Ensure non-negative variance
+                        // Ensure non-negative (should already be, but safety check)
                         if (variance < 0.0) variance = 0.0;
 
                         // Standard error of the mean
                         double sigma2 = variance / ncalls_per_strat;
 
-                        iter_sum[comp] += mean;
+                        iter_sum[comp] += mean[comp];
                         iter_sum2[comp] += sigma2;
                     }
 
@@ -308,7 +351,6 @@ namespace vegas
                         wgt = std::min(wgt, max_wgt);
                     } else {
                         // Fallback: use a weight proportional to number of samples
-                        // Cast to double to avoid integer overflow
                         wgt = static_cast<double>(nstrat_total) * static_cast<double>(ncalls_per_strat);
                     }
 
@@ -362,12 +404,12 @@ namespace vegas
                     result.integral[comp] = sum_integral_[comp] / sum_wgt_[comp];
                     result.error[comp] = std::sqrt(1.0 / sum_wgt_[comp]);
 
-                    // Chi-squared probability (simplified)
+                    // Reduced chi-squared (χ²/dof)
                     if (iter_count_ > 1) {
                         double dof = iter_count_ - 1;
-                        result.prob[comp] = sum_χ2_[comp] / dof;
+                        result.chi2[comp] = sum_χ2_[comp] / dof;
                     } else {
-                        result.prob[comp] = 1.0;
+                        result.chi2[comp] = 1.0;
                     }
 
                     // Check convergence
@@ -379,7 +421,7 @@ namespace vegas
                     // No valid weight accumulated - integration failed
                     result.integral[comp] = 0.0;
                     result.error[comp] = std::numeric_limits<double>::infinity();
-                    result.prob[comp] = 0.0;
+                    result.chi2[comp] = 0.0;
                     result.converged = false;
                 }
             }

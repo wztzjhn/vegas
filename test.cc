@@ -27,7 +27,7 @@ void print_result(const std::string &test_name,
                 double sigma = diff / result.error[i];
                 std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
             }
-            std::cout << "  χ²    = " << result.prob[i] << "\n";
+            std::cout << "  χ²    = " << result.chi2[i] << "\n";
         }
     }
 
@@ -67,7 +67,7 @@ void test_smooth_approximation()
 
     std::cout << "Regularized result (eps=" << eps << "): "
         << result.integral[0] << " ± " << result.error[0] << "\n";
-    std::cout << "χ² = " << result.prob[0] << "\n";
+    std::cout << "χ² = " << result.chi2[0] << "\n";
     std::cout << "Note: This should be lower than 1.393 due to regularization\n";
 }
 
@@ -142,7 +142,7 @@ void test_gsl_ising_integral()
         std::cout << "Result = " << std::fixed << std::setprecision(6)
             << result.integral[0] << " ± " << result.error[0] << "\n";
         std::cout << "Error  = " << error << " (" << sigma << " sigma)\n";
-        std::cout << "χ²   = " << result.prob[0] << "\n";
+        std::cout << "χ²   = " << result.chi2[0] << "\n";
     }
 
     std::cout << "\n" << std::string(60, '=') << "\n";
@@ -667,7 +667,7 @@ void test_custom_boundaries_trig()
     double diff = std::abs(result.integral[0] - expected);
     double sigma = diff / result.error[0];
     std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
-    std::cout << "  χ²       = " << result.prob[0] << "\n";
+    std::cout << "  χ²       = " << result.chi2[0] << "\n";
     std::cout << "Total evaluations: " << result.neval << "\n";
     std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
 }
@@ -718,7 +718,7 @@ void test_custom_boundaries_gaussian()
     double diff = std::abs(result.integral[0] - expected);
     double sigma = diff / result.error[0];
     std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
-    std::cout << "  χ²       = " << result.prob[0] << "\n";
+    std::cout << "  χ²       = " << result.chi2[0] << "\n";
     std::cout << "Total evaluations: " << result.neval << "\n";
     std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
 }
