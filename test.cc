@@ -1,69 +1,674 @@
+#include <cmath>
+#include <cassert>
 #include <chrono>
+#include <functional>
 #include <iostream>
 #include <iomanip>
-#include <cmath>
-#include <vector>
 #include <string>
-#include <functional>
-
+#include <vector>
 #include "vegas.hpp"
 
 // Helper function to print test results
 void print_result(const std::string &test_name,
                   const vegas::Result &result,
-                  const std::vector<double> &expected,
-                  bool show_details = true)
+                  const std::vector<double> &expected)
+{
+    std::cout << std::endl << std::string(60, '=') << std::endl;
+    std::cout << test_name << std::endl;
+    std::cout << std::string(60, '=') << std::endl;
+
+    for (size_t i = 0; i < result.integral.size(); ++i) {
+        std::cout << "Component " << i << ":\n";
+        std::cout << "  Result   = " << std::scientific << std::setprecision(8)
+                  << result.integral[i] << " +- " << result.error[i] << std::endl;
+        if (i < expected.size()) {
+            std::cout << "  Expected = " << expected[i] << std::endl;
+            const double diff = std::abs(result.integral[i] - expected[i]);
+            std::cout << "  Diff     = " << diff << " ("
+                      << std::defaultfloat << std::setprecision(3)
+                      << diff / result.error[i] << " σ)" << std::endl;
+            assert(diff / result.error[i] < 3.0);
+        }
+        std::cout << "  χ²       = " << result.chi2[i] << std::endl;
+    }
+
+    std::cout << "Total evaluations: " << result.neval << std::endl;
+    std::cout << "Converged:         " << (result.converged ? "Yes" : "No") << std::endl;
+}
+
+
+// Test 1: Simple polynomial x*y over [0,1]^2
+void integrand1(const std::vector<double> &x, std::vector<double> &f)
+{
+    assert(x.size() == 2);
+    assert(f.size() == 1);
+    f[0] = x[0] * x[1];
+}
+
+void test_polynomial_2d()
+{
+    const auto result = vegas::integrate(integrand1, 2, 1, 250000, 5);
+    assert(std::abs(result.integral[0] - 0.25) < 1.0e-3);
+
+    // Expected: ∫∫ x*y dx dy = 1/4
+    print_result("Test 1: Polynomial x*y", result, {0.25});
+}
+
+// Test 2: Gaussian in 3D
+void test_gaussian_3d()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        assert(x.size() == 3);
+        assert(f.size() == 1);
+        double sum = 0.0;
+        for (const auto &xi : x) {
+            const double z = 3.0 * (xi - 0.5); // Center at 0.5, scale
+            sum += z * z;
+        }
+        f[0] = std::exp(-sum);
+    };
+
+    const auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
+
+    // Expected: [∫_0^1 exp(-(3(x-0.5))^2) dx]^3
+    // = [(1/3) * ∫_{-1.5}^{1.5} exp(-u^2) du]^3
+    // = [(√π/3) * erf(1.5)]^3
+    double expected = std::pow(std::sqrt(M_PI) / 3.0 * std::erf(1.5), 3.0);
+    print_result("Test 2: Gaussian in 3D", result, {expected});
+}
+
+// Test 3: Corner peak (tests importance sampling)
+void test_corner_peak()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Peaks near origin
+        constexpr double a = 0.1;
+        f[0] = 1.0 / ((x[0] + a) * (x[1] + a));
+    };
+
+    const auto result = vegas::integrate(integrand, 2);
+
+    // Expected: log((1+a)/a)^2
+    constexpr double a = 0.1;
+    double expected = std::pow(std::log((1.0 + a) / a), 2.0);
+    print_result("Test 3: Corner Peak", result, {expected});
+}
+
+// Test 4: Oscillatory function
+void test_oscillatory()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        f[0] = std::cos(10.0 * M_PI * x[0]) * std::cos(10.0 * M_PI * x[1]);
+    };
+
+    const auto result = vegas::integrate(integrand, 2, 1, 1600000, 8);
+
+    // Expected: (sin(10π)/(10π))^2 ≈ 0
+    double expected = std::pow(std::sin(10.0 * M_PI) / (10.0 * M_PI), 2.0);
+    print_result("Test 4: Oscillatory Function", result, {expected});
+}
+
+// Test 5: Product of sines (separable integral)
+void test_product_sines()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        f[0] = 1.0;
+        for (const auto &xi : x) {
+            f[0] *= std::sin(M_PI * xi);
+        }
+    };
+
+    const auto result = vegas::integrate(integrand, 4, 1, 500000, 5);
+
+    // Expected: (2/π)^4
+    double expected = std::pow(2.0 / M_PI, 4.0);
+    print_result("Test 5: Product of Sines (4D)", result, {expected});
+}
+
+// Test 6: Discontinuous function
+void test_discontinuous()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Step function
+        f[0] = x[0] > 0.5 && x[1] > 0.5 ? 1.0 : 0.0;
+    };
+
+    const auto result = vegas::integrate(integrand, 2);
+
+    // Expected: 0.25 (area of quarter square)
+    print_result("Test 6: Discontinuous (Step)", result, {0.25});
+}
+
+// Test 7: Sphere volume in n dimensions
+void test_sphere_volume()
+{
+    constexpr int n = 5;
+    const std::vector xmin(n, -1.0);  // Native [-1,1]^n support
+    const std::vector xmax(n, 1.0);
+
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Check if inside unit sphere (x is already in [-1,1]^n)
+        double r2 = 0.0;
+        for (const auto &xi : x) {
+            r2 += xi * xi;
+        }
+        f[0] = r2 <= 1.0 ? 1.0 : 0.0;
+    };
+
+    const auto result = vegas::integrate(integrand, xmin, xmax, 1, 4000000, 8);
+
+    // Expected: π^(n/2) / Γ(n/2 + 1)
+    double expected = std::pow(M_PI, n / 2.0) / std::tgamma(n / 2.0 + 1.0);
+    print_result("Test 7: Sphere Volume (5D)", result, {expected});
+}
+
+// Test 8: Multiple components
+void test_multiple_components()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        f[0] = x[0] * x[0] + x[1] * x[1]; // 2/3
+        f[1] = std::exp(-x[0] - x[1]); // (1-1/e)^2
+        f[2] = std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]); // 4/π^2
+    };
+
+    const auto result = vegas::integrate(integrand, 2, 3, 500000, 5);
+
+    const double e = std::exp(1.0);
+    const std::vector expected = {
+        2.0 / 3.0,
+        std::pow(1.0 - 1.0 / e, 2.0),
+        4.0 / (M_PI * M_PI)
+    };
+
+    print_result("Test 8: Multiple Components", result, expected);
+}
+
+// Test 9: Tsuda's function (difficult peak)
+void test_tsuda()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        double prod = 1.0;
+        for (const auto &xi : x) {
+            constexpr double a = 0.1;
+            prod *= 1.0 / (a * a + (xi - 0.5) * (xi - 0.5));
+        }
+        f[0] = prod;
+    };
+
+    const auto result = vegas::integrate(integrand, 4, 1, 5000000, 10);
+
+    // Expected: (arctan(0.5/a) + arctan(0.5/a))^4 / a^4
+    constexpr double a = 0.1;
+    const double arctan_sum = 2.0 * std::atan(0.5 / a);
+    double expected = std::pow(arctan_sum / a, 4.0);
+    print_result("Test 9: Tsuda's Function (peaked)", result, {expected});
+}
+
+// Test 10: Genz oscillatory test function
+void test_genz_oscillatory()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Genz "Oscillatory" test function
+        const std::vector u = {1.0, 1.0, 1.0};
+        double sum = 0.0;
+        for (size_t i = 0; i < x.size(); ++i) {
+            sum += u[i] * x[i];
+        }
+        f[0] = std::cos(2.0 * M_PI * u[0] + sum);
+    };
+
+    const auto result = vegas::integrate(integrand, 3, 1, 1600000, 8);
+
+    // Analytical solution is complex, just verify it runs
+    print_result("Test 10: Genz Oscillatory", result, {});
+}
+
+// Test 11: Camel function (multiple peaks)
+void test_camel()
+{
+    const std::vector xmin = {-2.0, -2.0};
+    const std::vector xmax = {2.0, 2.0};
+
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        const double x1 = x[0];
+        const double x2 = x[1];
+
+        // Six-hump camel function (negated to make peaks)
+        const double term1 = (4.0 - 2.1 * x1 * x1 + std::pow(x1, 4.0) / 3.0) * x1 * x1;
+        const double term2 = x1 * x2;
+        const double term3 = (-4.0 + 4.0 * x2 * x2) * x2 * x2;
+
+        f[0] = std::exp(-(term1 + term2 + term3));
+    };
+
+    const auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000, 10);
+
+    print_result("Test 11: Six-Hump Camel (multiple peaks)", result, {});
+}
+
+// Test 12: High-dimensional Gaussian with varying widths
+void test_anisotropic_gaussian()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Different widths in different dimensions
+        const std::vector sigma = {0.1, 0.2, 0.3, 0.1, 0.2, 0.3};
+        double sum = 0.0;
+        for (size_t i = 0; i < x.size(); ++i) {
+            const double z = (x[i] - 0.5) / sigma[i];
+            sum += z * z;
+        }
+        f[0] = std::exp(-0.5 * sum);
+    };
+
+    const auto result = vegas::integrate(integrand, 6, 1, 10000000, 10);
+
+    // Expected: ∏_i [∫_0^1 exp(-0.5*((x-0.5)/σ_i)^2) dx]
+    // = ∏_i [σ_i * ∫_{-0.5/σ_i}^{0.5/σ_i} exp(-0.5*u^2) du]
+    // = ∏_i [σ_i * √(2π) * (Φ(0.5/σ_i) - Φ(-0.5/σ_i))]
+    // = ∏_i [σ_i * √(2π) * erf(0.5/(σ_i*√2))]
+    const std::vector sigma = {0.1, 0.2, 0.3, 0.1, 0.2, 0.3};
+    double expected = 1.0;
+    for (const auto s : sigma) {
+        expected *= s * std::sqrt(2.0 * M_PI) * std::erf(0.5 / (s * std::sqrt(2.0)));
+    }
+    print_result("Test 12: Anisotropic Gaussian (6D)", result, {expected});
+}
+
+// Test 13: Function with near-singularity
+void test_near_singularity()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        constexpr double epsilon = 0.01;
+        const double r2 = x[0] * x[0] + x[1] * x[1];
+        f[0] = 1.0 / std::sqrt(r2 + epsilon);
+    };
+
+    const auto result = vegas::integrate(integrand, 2, 1, 5000000, 10, 2.0);
+
+    // Approximate expected value (numerical)
+    print_result("Test 13: Near-Singularity", result, {});
+}
+
+// Test 14: Exponential decay product
+void test_exponential_product()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        f[0] = 1.0;
+        for (const auto &xi : x) {
+            constexpr double lambda = 2.0;
+            f[0] *= lambda * std::exp(-lambda * xi);
+        }
+    };
+
+    const auto result = vegas::integrate(integrand, 3, 1, 250000, 5);
+
+    // Expected: (1 - e^(-λ))^n
+    constexpr double lambda = 2.0;
+    double expected = std::pow(1.0 - std::exp(-lambda), 3.0);
+    print_result("Test 14: Exponential Product", result, {expected});
+}
+
+// Test 15: Box function (tests stratification)
+void test_box_function()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // 1 inside a box, 0 outside
+        bool inside = true;
+        for (const auto &xi : x) {
+            inside = inside && xi >= 0.25 && xi <= 0.75;
+        }
+        f[0] = inside ? 1.0 : 0.0;
+    };
+
+    const auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
+
+    // Expected: 0.5^3 = 0.125
+    print_result("Test 15: Box Function (3D)", result, {0.125});
+}
+
+// Test 16: Very high dimensional (stress test)
+void test_high_dimensional()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Simple product to avoid underflow
+        f[0] = 1.0;
+        for (const auto &xi : x) {
+            f[0] *= 2.0 * xi; // Expected value per dimension: 1
+        }
+    };
+
+    const auto result = vegas::integrate(integrand, 10, 1, 16000000, 8);
+
+    // Expected: 1 (product of ten integrals of 2x from 0 to 1 = 1^10)
+    print_result("Test 16: High Dimensional (10D)", result, {1.0});
+}
+
+// Test 17: Numerical stability test (very small values)
+void test_small_values()
+{
+    const std::vector xmin(2, 0.0);
+    const std::vector xmax(2, 1.0);
+
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Very small values to test numerical stability
+        const double r2 = (x[0] - 0.5) * (x[0] - 0.5) + (x[1] - 0.5) * (x[1] - 0.5);
+        f[0] = 1e-10 * std::exp(-100.0 * r2);
+    };
+
+    const auto result = vegas::integrate(integrand, xmin, xmax, 1, 500000, 5);
+
+    // Expected: approximately 1e-10 * π / 100
+    double expected = 1e-10 * M_PI / 100.0;
+    print_result("Test 17: Small Values (stability)", result, {expected});
+}
+
+// Test 18: Mixed scale function
+void test_mixed_scale()
+{
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // One component is large, another is small
+        f[0] = 1e6 * x[0] * x[1] * x[2];
+        f[1] = 1e-6 * std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]) * std::sin(M_PI * x[2]);
+    };
+
+    const auto result = vegas::integrate(integrand, 3, 2, 1600000, 8);
+
+    const std::vector expected = {
+        1e6 * 0.125, // (1/2)^3
+        1e-6 * std::pow(2.0 / M_PI, 3.0)
+    };
+    print_result("Test 18: Mixed Scale", result, expected);
+}
+
+// Test 19: Custom boundaries - trigonometric integral
+void test_custom_boundaries_trig()
+{
+    // Integrate over [0, π] × [0, 2π]
+    const std::vector xmin(2, 0.0);
+    const std::vector xmax = {M_PI, 2.0 * M_PI};
+
+    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
+    {
+        // x[0] ∈ [0, π], x[1] ∈ [0, 2π]
+        // Integrate: ∫₀^π ∫₀^(2π) sin(x) * cos(y) dy dx
+        f[0] = std::sin(x[0]) * std::cos(x[1]);
+    };
+
+    const auto result = vegas::integrate(integrand, xmin, xmax);
+
+    // Expected: ∫₀^π sin(x) dx * ∫₀^(2π) cos(y) dy
+    //         = [-cos(x)]₀^π * [sin(y)]₀^(2π)
+    //         = (-(-1) - (-1)) * (0 - 0) = 0
+    constexpr double expected = 0.0;
+    print_result("Test 19: Custom Boundaries [0,π]×[0,2π]", result, {expected});
+}
+
+// Test 20: Custom boundaries - Gaussian in shifted domain
+void test_custom_boundaries_gaussian()
+{
+    // Integrate over [-3, 3]^3
+    const std::vector xmin = {-3.0, -3.0, -3.0};
+    const std::vector xmax = {3.0, 3.0, 3.0};
+
+    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
+    {
+        // x ∈ [-3, 3]^3
+        // Integrate: exp(-x²/2 - y²/2 - z²/2) over [-3,3]^3
+        double sum = 0.0;
+        for (const auto& xi : x) {
+            sum += xi * xi;
+        }
+        f[0] = std::exp(-0.5 * sum);
+    };
+
+    const auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000);
+
+    // Expected: ∏ᵢ ∫₋₃³ exp(-xᵢ²/2) dxᵢ
+    //         = [√(2π) * (Φ(3) - Φ(-3))]³
+    //         ≈ [√(2π) * 0.9973]³
+    // Where Φ is the standard normal CDF
+    const double integral_1d = std::sqrt(2.0 * M_PI) * std::erf(3.0 / std::sqrt(2.0));
+    const double expected = std::pow(integral_1d, 3.0);
+    print_result("Test 20: Custom Boundaries [-3,3]³", result, {expected});
+}
+
+// Test 21: Large number of components (ncomp=2000) with automatic verification
+void test_large_ncomp()
 {
     std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << test_name << "\n";
+    std::cout << "Test 21: Large Number of Components (ncomp=2000)\n";
     std::cout << std::string(60, '=') << "\n";
 
-    if (show_details) {
-        for (size_t i = 0; i < result.integral.size(); ++i) {
-            std::cout << "Component " << i << ":\n";
-            std::cout << "  Result   = " << std::scientific << std::setprecision(8)
-                << result.integral[i] << " ± " << result.error[i] << "\n";
-            if (i < expected.size()) {
-                std::cout << "  Expected = " << expected[i] << "\n";
-                double diff = std::abs(result.integral[i] - expected[i]);
-                double sigma = diff / result.error[i];
-                std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
-            }
-            std::cout << "  χ²    = " << result.chi2[i] << "\n";
+    constexpr int num_components = 2000;
+
+    // Pre-compute expected values for all components
+    std::vector<double> expected(num_components);
+
+    // Components 0-999: Polynomials ∫₀¹ x^n * y^m dx dy
+    for (int i = 0; i < 1000; ++i) {
+        const int n = i % 10;  // Powers 0-9 for x
+        const int m = i / 10;  // Powers 0-99 for y
+        expected[i] = 1.0 / ((n + 1) * (m + 1));
+    }
+
+    // Components 1000-1999: Exponential decay ∫₀¹ exp(-λx) * exp(-μy) dx dy
+    for (int i = 1000; i < 2000; ++i) {
+        const double lambda = 0.5 + 0.01 * (i - 1000);  // λ from 0.5 to 10.49
+        const double mu = 1.0 + 0.02 * (i - 1000);       // μ from 1.0 to 20.98
+        expected[i] = (1.0 - std::exp(-lambda)) * (1.0 - std::exp(-mu));
+    }
+
+    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
+    {
+        // Components 0-999: Polynomials
+        for (int i = 0; i < 1000; ++i) {
+            const int n = i % 10;
+            const int m = i / 10;
+            f[i] = std::pow(x[0], n) * std::pow(x[1], m);
+        }
+
+        // Components 1000-1999: Exponential decay
+        for (int i = 1000; i < 2000; ++i) {
+            const double lambda = 0.5 + 0.01 * (i - 1000);
+            const double mu = 1.0 + 0.02 * (i - 1000);
+            f[i] = lambda * std::exp(-lambda * x[0]) * mu * std::exp(-mu * x[1]);
+        }
+    };
+
+    std::cout << "Computing " << num_components << " integrals...\n";
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    const auto result = vegas::integrate(integrand, 2, num_components, 4000000, 8);
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "Computation time: " << duration.count() << " ms\n";
+    std::cout << "Total evaluations: " << result.neval << "\n\n";
+
+    // Automatic verification with assertions
+    std::cout << "Running automatic verification...\n";
+    std::cout << std::string(60, '-') << "\n";
+
+    int passed = 0;
+    int failed = 0;
+    int failed_3sigma = 0;
+    int failed_5sigma = 0;
+    double max_sigma = 0.0;
+    int max_sigma_component = -1;
+    double total_relative_error = 0.0;
+
+    std::vector<int> failed_components;
+
+    for (int comp = 0; comp < num_components; ++comp) {
+        // Check for NaN or inf
+        if (!std::isfinite(result.integral[comp]) || !std::isfinite(result.error[comp])) {
+            std::cerr << "ERROR: Component " << comp << " has non-finite values!\n";
+            std::cerr << "  Result = " << result.integral[comp]
+                      << " ± " << result.error[comp] << "\n";
+            ++failed;
+            failed_components.push_back(comp);
+            continue;
+        }
+
+        // Check for zero error (shouldn't happen)
+        if (result.error[comp] <= 0.0) {
+            std::cerr << "ERROR: Component " << comp << " has zero or negative error!\n";
+            ++failed;
+            failed_components.push_back(comp);
+            continue;
+        }
+
+        // Compute deviation
+        const double diff = std::abs(result.integral[comp] - expected[comp]);
+        const double sigma = diff / result.error[comp];
+        const double rel_error = expected[comp] != 0.0 ? std::abs(diff / expected[comp]) : diff;
+
+        total_relative_error += rel_error;
+
+        if (sigma > max_sigma) {
+            max_sigma = sigma;
+            max_sigma_component = comp;
+        }
+
+        // Count failures at different sigma levels
+        if (sigma > 5.0) {
+            ++failed_5sigma;
+            ++failed;
+            failed_components.push_back(comp);
+        } else if (sigma > 3.0) {
+            ++failed_3sigma;
+        } else {
+            ++passed;
         }
     }
 
-    std::cout << "Total evaluations: " << result.neval << "\n";
-    std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
-}
+    // Calculate statistics
+    const double pass_rate = 100.0 * passed / num_components;
+    const double avg_relative_error = total_relative_error / num_components;
 
-// Diagnostic: Test smooth approximation of the same integral
-void test_smooth_approximation()
-{
-    std::cout << "\nDiagnostic: Smooth (regularized) version\n";
+    // Print summary
+    std::cout << "\nVerification Results:\n";
+    std::cout << std::string(60, '-') << "\n";
+    std::cout << "✓ Passed (< 3σ):          " << passed << " / " << num_components
+              << " (" << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
+    std::cout << "⚠ Warning (3-5σ):         " << failed_3sigma << "\n";
+    std::cout << "✗ Failed (> 5σ):          " << failed_5sigma << "\n";
+    std::cout << "✗ Failed (NaN/Inf/Zero):  " << failed - failed_5sigma << "\n";
+    std::cout << "\nStatistics:\n";
+    std::cout << "  Max deviation:          " << std::scientific << std::setprecision(4)
+              << max_sigma << "σ (component " << max_sigma_component << ")\n";
+    std::cout << "  Avg relative error:     " << avg_relative_error << "\n";
+    std::cout << "  Overall converged:      " << (result.converged ? "Yes" : "No") << "\n";
+
+    // Show some example results
+    std::cout << "\nSample Results:\n";
+    std::cout << std::string(60, '-') << "\n";
+    const std::vector samples = {0, 100, 500, 999, 1000, 1500, 1999};
+    for (int comp : samples) {
+        const double diff = std::abs(result.integral[comp] - expected[comp]);
+        const double sigma = diff / result.error[comp];
+        std::cout << "Component " << std::setw(4) << comp << ": "
+                  << std::scientific << std::setprecision(6)
+                  << result.integral[comp] << " ± " << result.error[comp]
+                  << " (expected: " << expected[comp] << ", "
+                  << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+    }
+
+    // Show worst failures if any
+    if (!failed_components.empty() && failed_components.size() <= 10) {
+        std::cout << "\nFailed Components:\n";
+        std::cout << std::string(60, '-') << "\n";
+        for (int comp : failed_components) {
+            const double diff = std::abs(result.integral[comp] - expected[comp]);
+            const double sigma = diff / result.error[comp];
+            std::cout << "Component " << std::setw(4) << comp << ": "
+                      << std::scientific << std::setprecision(6)
+                      << result.integral[comp] << " ± " << result.error[comp]
+                      << " (expected: " << expected[comp] << ", "
+                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+        }
+    } else if (failed_components.size() > 10) {
+        std::cout << "\n" << failed_components.size() << " components failed (showing first 10):\n";
+        std::cout << std::string(60, '-') << "\n";
+        for (int i = 0; i < 10; ++i) {
+            const int comp = failed_components[i];
+            const double diff = std::abs(result.integral[comp] - expected[comp]);
+            const double sigma = diff / result.error[comp];
+            std::cout << "Component " << std::setw(4) << comp << ": "
+                      << std::scientific << std::setprecision(6)
+                      << result.integral[comp] << " ± " << result.error[comp]
+                      << " (expected: " << expected[comp] << ", "
+                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
+        }
+    }
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+
+    // Assertions
+    std::cout << "\nAssertion Checks:\n";
     std::cout << std::string(60, '-') << "\n";
 
-    // Same integral but with regularization parameter
-    double eps = 0.01; // Removes singularity
+    // Check 1: No NaN or Inf values
+    const bool check1 = failed - failed_5sigma == 0;
+    std::cout << (check1 ? "✓" : "✗") << " No NaN/Inf/Zero errors\n";
+    if (!check1) {
+        throw std::runtime_error("ASSERTION FAILED: Found NaN/Inf/Zero values");
+    }
 
-    auto integrand = [eps](const std::vector<double> &x, std::vector<double> &f)
-    {
-        double k0 = M_PI * x[0];
-        double k1 = M_PI * x[1];
-        double k2 = M_PI * x[2];
+    // Check 2: Pass rate > 95% (allowing for statistical fluctuations)
+    // With 2000 components, expect ~5% to be > 2σ by chance
+    const bool check2 = pass_rate >= 95.0;
+    std::cout << (check2 ? "✓" : "✗") << " Pass rate >= 95% (got "
+              << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
+    if (!check2) {
+        throw std::runtime_error("ASSERTION FAILED: Pass rate too low");
+    }
 
-        double A = 1.0 / (M_PI * M_PI * M_PI);
-        double denom = 1.0 - cos(k0) * cos(k1) * cos(k2) + eps;
+    // Check 3: No catastrophic failures (> 10σ)
+    const bool check3 = max_sigma < 10.0;
+    std::cout << (check3 ? "✓" : "✗") << " Max deviation < 10σ (got "
+              << std::fixed << std::setprecision(2) << max_sigma << "σ)\n";
+    if (!check3) {
+        throw std::runtime_error("ASSERTION FAILED: Catastrophic deviation detected");
+    }
 
-        f[0] = A / denom * (M_PI * M_PI * M_PI);
-    };
+    // Check 4: Average relative error is reasonable
+    const bool check4 = avg_relative_error < 0.01;  // < 1% average
+    std::cout << (check4 ? "✓" : "✗") << " Avg relative error < 1% (got "
+              << std::scientific << std::setprecision(4) << avg_relative_error << ")\n";
+    if (!check4) {
+        throw std::runtime_error("ASSERTION FAILED: Average relative error too high");
+    }
 
-    auto result = vegas::integrate(integrand, 3);
+    // Check 5: Less than 1% complete failures (> 5σ)
+    const double failure_rate = 100.0 * failed_5sigma / num_components;
+    const bool check5 = failure_rate < 1.0;
+    std::cout << (check5 ? "✓" : "✗") << " Failure rate < 1% (got "
+              << std::fixed << std::setprecision(2) << failure_rate << "%)\n";
+    if (!check5) {
+        throw std::runtime_error("ASSERTION FAILED: Too many 5-sigma failures");
+    }
 
-    std::cout << "Regularized result (eps=" << eps << "): "
-        << result.integral[0] << " ± " << result.error[0] << "\n";
-    std::cout << "χ² = " << result.chi2[0] << "\n";
-    std::cout << "Note: This should be lower than 1.393 due to regularization\n";
+    std::cout << "\n✓ All assertions passed!\n";
+    std::cout << std::string(60, '=') << "\n";
 }
 
 void test_gsl_ising_integral()
@@ -82,11 +687,11 @@ void test_gsl_ising_integral()
     auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
     {
         // x is already in [0, π]^3
-        double k0 = x[0];
-        double k1 = x[1];
-        double k2 = x[2];
+        const double k0 = x[0];
+        const double k1 = x[1];
+        const double k2 = x[2];
 
-        double denom = 1.0 - cos(k0) * cos(k1) * cos(k2);
+        const double denom = 1.0 - cos(k0) * cos(k1) * cos(k2);
         f[0] = 1.0 / (M_PI * M_PI * M_PI * denom);
     };
 
@@ -152,665 +757,33 @@ void test_gsl_ising_integral()
     std::cout << std::string(60, '=') << "\n";
 }
 
-// Test 1: Simple polynomial x*y over [0,1]^2
-void test_polynomial_2d()
+// Diagnostic: Test smooth approximation of the same integral
+void test_smooth_approximation()
 {
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        f[0] = x[0] * x[1];
-    };
-
-    auto result = vegas::integrate(integrand, 2, 1, 250000, 5);
-
-    // Expected: ∫∫ x*y dx dy = 1/4
-    print_result("Test 1: Polynomial x*y", result, {0.25});
-}
-
-// Test 2: Gaussian in 3D
-void test_gaussian_3d()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        double sum = 0.0;
-        for (const auto &xi : x) {
-            double z = 3.0 * (xi - 0.5); // Center at 0.5, scale
-            sum += z * z;
-        }
-        f[0] = std::exp(-sum);
-    };
-
-    auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
-
-    // Expected: [∫_0^1 exp(-(3(x-0.5))^2) dx]^3
-    // = [(1/3) * ∫_{-1.5}^{1.5} exp(-u^2) du]^3
-    // = [(√π/3) * erf(1.5)]^3
-    double expected = std::pow(std::sqrt(M_PI) / 3.0 * std::erf(1.5), 3.0);
-    print_result("Test 2: Gaussian in 3D", result, {expected});
-}
-
-// Test 3: Corner peak (tests importance sampling)
-void test_corner_peak()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Peaks near origin
-        double a = 0.1;
-        f[0] = 1.0 / ((x[0] + a) * (x[1] + a));
-    };
-
-    auto result = vegas::integrate(integrand, 2);
-
-    // Expected: log((1+a)/a)^2
-    double a = 0.1;
-    double expected = std::pow(std::log((1.0 + a) / a), 2.0);
-    print_result("Test 3: Corner Peak", result, {expected});
-}
-
-// Test 4: Oscillatory function
-void test_oscillatory()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        f[0] = std::cos(10.0 * M_PI * x[0]) * std::cos(10.0 * M_PI * x[1]);
-    };
-
-    auto result = vegas::integrate(integrand, 2, 1, 1600000, 8);
-
-    // Expected: (sin(10π)/(10π))^2 ≈ 0
-    double expected = std::pow(std::sin(10.0 * M_PI) / (10.0 * M_PI), 2.0);
-    print_result("Test 4: Oscillatory Function", result, {expected});
-}
-
-// Test 5: Product of sines (separable integral)
-void test_product_sines()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        f[0] = 1.0;
-        for (const auto &xi : x) {
-            f[0] *= std::sin(M_PI * xi);
-        }
-    };
-
-    auto result = vegas::integrate(integrand, 4, 1, 500000, 5);
-
-    // Expected: (2/π)^4
-    double expected = std::pow(2.0 / M_PI, 4.0);
-    print_result("Test 5: Product of Sines (4D)", result, {expected});
-}
-
-// Test 6: Discontinuous function
-void test_discontinuous()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Step function
-        f[0] = (x[0] > 0.5 && x[1] > 0.5) ? 1.0 : 0.0;
-    };
-
-    auto result = vegas::integrate(integrand, 2);
-
-    // Expected: 0.25 (area of quarter square)
-    print_result("Test 6: Discontinuous (Step)", result, {0.25});
-}
-
-// Test 7: Sphere volume in n dimensions
-void test_sphere_volume()
-{
-    const int n = 5;
-    const std::vector xmin(n, -1.0);  // Native [-1,1]^n support
-    const std::vector xmax(n, 1.0);
-
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Check if inside unit sphere (x is already in [-1,1]^n)
-        double r2 = 0.0;
-        for (const auto &xi : x) {
-            r2 += xi * xi;
-        }
-        f[0] = r2 <= 1.0 ? 1.0 : 0.0;
-    };
-
-    auto result = vegas::integrate(integrand, xmin, xmax, 1, 4000000, 8);
-
-    // Expected: π^(n/2) / Γ(n/2 + 1)
-    double expected = std::pow(M_PI, n / 2.0) / std::tgamma(n / 2.0 + 1.0);
-    print_result("Test 7: Sphere Volume (5D)", result, {expected});
-}
-
-// Test 8: Multiple components
-void test_multiple_components()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        f[0] = x[0] * x[0] + x[1] * x[1]; // 2/3
-        f[1] = std::exp(-x[0] - x[1]); // (1-1/e)^2
-        f[2] = std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]); // 4/π^2
-    };
-
-    auto result = vegas::integrate(integrand, 2, 3, 500000, 5);
-
-    double e = std::exp(1.0);
-    std::vector<double> expected = {
-        2.0 / 3.0,
-        std::pow(1.0 - 1.0 / e, 2.0),
-        4.0 / (M_PI * M_PI)
-    };
-
-    print_result("Test 8: Multiple Components", result, expected);
-}
-
-// Test 9: Tsuda's function (difficult peak)
-void test_tsuda()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        double a = 0.1;
-        double prod = 1.0;
-        for (const auto &xi : x) {
-            prod *= 1.0 / (a * a + (xi - 0.5) * (xi - 0.5));
-        }
-        f[0] = prod;
-    };
-
-    auto result = vegas::integrate(integrand, 4, 1, 5000000, 10);
-
-    // Expected: (arctan(0.5/a) + arctan(0.5/a))^4 / a^4
-    double a = 0.1;
-    double arctan_sum = 2.0 * std::atan(0.5 / a);
-    double expected = std::pow(arctan_sum / a, 4.0);
-    print_result("Test 9: Tsuda's Function (peaked)", result, {expected});
-}
-
-// Test 10: Genz oscillatory test function
-void test_genz_oscillatory()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Genz "Oscillatory" test function
-        std::vector<double> u = {1.0, 1.0, 1.0};
-        double sum = 0.0;
-        for (size_t i = 0; i < x.size(); ++i) {
-            sum += u[i] * x[i];
-        }
-        f[0] = std::cos(2.0 * M_PI * u[0] + sum);
-    };
-
-    auto result = vegas::integrate(integrand, 3, 1, 1600000, 8);
-
-    // Analytical solution is complex, just verify it runs
-    print_result("Test 10: Genz Oscillatory", result, {}, false);
-}
-
-// Test 11: Camel function (multiple peaks)
-void test_camel()
-{
-    const std::vector xmin = {-2.0, -2.0};  // Native [-2,2]^2 support
-    const std::vector xmax = {2.0, 2.0};
-
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // x is already in [-2, 2]^2
-        double x1 = x[0];
-        double x2 = x[1];
-
-        // Six-hump camel function (negated to make peaks)
-        double term1 = (4.0 - 2.1 * x1 * x1 + std::pow(x1, 4.0) / 3.0) * x1 * x1;
-        double term2 = x1 * x2;
-        double term3 = (-4.0 + 4.0 * x2 * x2) * x2 * x2;
-
-        f[0] = std::exp(-(term1 + term2 + term3));
-    };
-
-    auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000, 10);
-
-    print_result("Test 11: Six-Hump Camel (multiple peaks)", result, {}, false);
-}
-
-// Test 12: High-dimensional Gaussian with varying widths
-void test_anisotropic_gaussian()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Different widths in different dimensions
-        std::vector<double> sigma = {0.1, 0.2, 0.3, 0.1, 0.2, 0.3};
-        double sum = 0.0;
-        for (size_t i = 0; i < x.size(); ++i) {
-            double z = (x[i] - 0.5) / sigma[i];
-            sum += z * z;
-        }
-        f[0] = std::exp(-0.5 * sum);
-    };
-
-    auto result = vegas::integrate(integrand, 6, 1, 10000000, 10);
-
-    // Expected: ∏_i [∫_0^1 exp(-0.5*((x-0.5)/σ_i)^2) dx]
-    // = ∏_i [σ_i * ∫_{-0.5/σ_i}^{0.5/σ_i} exp(-0.5*u^2) du]
-    // = ∏_i [σ_i * √(2π) * (Φ(0.5/σ_i) - Φ(-0.5/σ_i))]
-    // = ∏_i [σ_i * √(2π) * erf(0.5/(σ_i*√2))]
-    std::vector<double> sigma = {0.1, 0.2, 0.3, 0.1, 0.2, 0.3};
-    double expected = 1.0;
-    for (auto s : sigma) {
-        expected *= s * std::sqrt(2.0 * M_PI) * std::erf(0.5 / (s * std::sqrt(2.0)));
-    }
-    print_result("Test 12: Anisotropic Gaussian (6D)", result, {expected});
-}
-
-// Test 13: Function with near-singularity
-void test_near_singularity()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        double epsilon = 0.01;
-        double r2 = x[0] * x[0] + x[1] * x[1];
-        f[0] = 1.0 / std::sqrt(r2 + epsilon);
-    };
-
-    auto result = vegas::integrate(integrand, 2, 1, 5000000, 10, 2.0);
-
-    // Approximate expected value (numerical)
-    print_result("Test 13: Near-Singularity", result, {}, false);
-}
-
-// Test 14: Exponential decay product
-void test_exponential_product()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        double lambda = 2.0;
-        f[0] = 1.0;
-        for (const auto &xi : x) {
-            f[0] *= lambda * std::exp(-lambda * xi);
-        }
-    };
-
-    auto result = vegas::integrate(integrand, 3, 1, 250000, 5);
-
-    // Expected: (1 - e^(-λ))^n
-    double lambda = 2.0;
-    double expected = std::pow(1.0 - std::exp(-lambda), 3.0);
-    print_result("Test 14: Exponential Product", result, {expected});
-}
-
-// Test 15: Box function (tests stratification)
-void test_box_function()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // 1 inside a box, 0 outside
-        bool inside = true;
-        for (const auto &xi : x) {
-            inside = inside && (xi >= 0.25 && xi <= 0.75);
-        }
-        f[0] = inside ? 1.0 : 0.0;
-    };
-
-    auto result = vegas::integrate(integrand, 3, 1, 500000, 5);
-
-    // Expected: 0.5^3 = 0.125
-    print_result("Test 15: Box Function (3D)", result, {0.125});
-}
-
-// Test 16: Very high dimensional (stress test)
-void test_high_dimensional()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Simple product to avoid underflow
-        f[0] = 1.0;
-        for (const auto &xi : x) {
-            f[0] *= 2.0 * xi; // Expected value per dimension: 1
-        }
-    };
-
-    auto result = vegas::integrate(integrand, 10, 1, 16000000, 8);
-
-    // Expected: 1 (product of ten integrals of 2x from 0 to 1 = 1^10)
-    print_result("Test 16: High Dimensional (10D)", result, {1.0});
-}
-
-// Test 17: Numerical stability test (very small values)
-void test_small_values()
-{
-    const std::vector xmin(2, 0.0);
-    const std::vector xmax(2, 1.0);
-
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Very small values to test numerical stability
-        double r2 = (x[0] - 0.5) * (x[0] - 0.5) + (x[1] - 0.5) * (x[1] - 0.5);
-        f[0] = 1e-10 * std::exp(-100.0 * r2);
-    };
-
-    auto result = vegas::integrate(integrand, xmin, xmax, 1, 500000, 5);
-
-    // Expected: approximately 1e-10 * π / 100
-    double expected = 1e-10 * M_PI / 100.0;
-    print_result("Test 17: Small Values (stability)", result, {expected});
-}
-
-// Test 18: Mixed scale function
-void test_mixed_scale()
-{
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // One component is large, another is small
-        f[0] = 1e6 * x[0] * x[1] * x[2];
-        f[1] = 1e-6 * std::sin(M_PI * x[0]) * std::sin(M_PI * x[1]) * std::sin(M_PI * x[2]);
-    };
-
-    auto result = vegas::integrate(integrand, 3, 2, 1600000, 8);
-
-    std::vector<double> expected = {
-        1e6 * 0.125, // (1/2)^3
-        1e-6 * std::pow(2.0 / M_PI, 3.0)
-    };
-    print_result("Test 18: Mixed Scale", result, expected);
-}
-
-// Test 19: Custom boundaries - trigonometric integral
-void test_custom_boundaries_trig()
-{
-    // Integrate over [0, π] × [0, 2π]
-    const std::vector xmin(2, 0.0);
-    const std::vector xmax = {M_PI, 2.0 * M_PI};
-
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
-    {
-        // x[0] ∈ [0, π], x[1] ∈ [0, 2π]
-        // Integrate: ∫₀^π ∫₀^(2π) sin(x) * cos(y) dy dx
-        f[0] = std::sin(x[0]) * std::cos(x[1]);
-    };
-
-    auto result = vegas::integrate(integrand, xmin, xmax);
-
-    // Expected: ∫₀^π sin(x) dx * ∫₀^(2π) cos(y) dy
-    //         = [-cos(x)]₀^π * [sin(y)]₀^(2π)
-    //         = (-(-1) - (-1)) * (0 - 0) = 0
-    double expected = 0.0;
-
-    std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << "Test 19: Custom Boundaries [0,π]×[0,2π]\n";
-    std::cout << std::string(60, '=') << "\n";
-    std::cout << "Domain: [0, π] × [0, 2π]\n";
-    std::cout << "Function: sin(x) * cos(y)\n";
-    std::cout << "Component 0:\n";
-    std::cout << "  Result   = " << std::scientific << std::setprecision(8)
-              << result.integral[0] << " ± " << result.error[0] << "\n";
-    std::cout << "  Expected = " << expected << "\n";
-    double diff = std::abs(result.integral[0] - expected);
-    double sigma = diff / result.error[0];
-    std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
-    std::cout << "  χ²       = " << result.chi2[0] << "\n";
-    std::cout << "Total evaluations: " << result.neval << "\n";
-    std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
-}
-
-// Test 20: Custom boundaries - Gaussian in shifted domain
-void test_custom_boundaries_gaussian()
-{
-    // Integrate over [-3, 3]^3
-    const std::vector xmin = {-3.0, -3.0, -3.0};
-    const std::vector xmax = {3.0, 3.0, 3.0};
-
-    auto integrand = [](const std::vector<double>& x, std::vector<double>& f)
-    {
-        // x ∈ [-3, 3]^3
-        // Integrate: exp(-x²/2 - y²/2 - z²/2) over [-3,3]^3
-        double sum = 0.0;
-        for (const auto& xi : x) {
-            sum += xi * xi;
-        }
-        f[0] = std::exp(-0.5 * sum);
-    };
-
-    auto result = vegas::integrate(integrand, xmin, xmax, 1, 2000000);
-
-    // Expected: ∏ᵢ ∫₋₃³ exp(-xᵢ²/2) dxᵢ
-    //         = [√(2π) * (Φ(3) - Φ(-3))]³
-    //         ≈ [√(2π) * 0.9973]³
-    // Where Φ is the standard normal CDF
-    double integral_1d = std::sqrt(2.0 * M_PI) * std::erf(3.0 / std::sqrt(2.0));
-    double expected = std::pow(integral_1d, 3.0);
-
-    std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << "Test 20: Custom Boundaries [-3,3]³\n";
-    std::cout << std::string(60, '=') << "\n";
-    std::cout << "Domain: [-3, 3]³\n";
-    std::cout << "Function: exp(-0.5*(x²+y²+z²))\n";
-    std::cout << "Component 0:\n";
-    std::cout << "  Result   = " << std::scientific << std::setprecision(8)
-              << result.integral[0] << " ± " << result.error[0] << "\n";
-    std::cout << "  Expected = " << expected << "\n";
-    double diff = std::abs(result.integral[0] - expected);
-    double sigma = diff / result.error[0];
-    std::cout << "  Diff     = " << diff << " (" << sigma << " sigma)\n";
-    std::cout << "  χ²       = " << result.chi2[0] << "\n";
-    std::cout << "Total evaluations: " << result.neval << "\n";
-    std::cout << "Converged: " << (result.converged ? "Yes" : "No") << "\n";
-}
-
-// Test 21: Large number of components (ncomp=2000) with automatic verification
-void test_large_ncomp()
-{
-    std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << "Test 21: Large Number of Components (ncomp=2000)\n";
-    std::cout << std::string(60, '=') << "\n";
-
-    const int num_components = 2000;
-
-    // Pre-compute expected values for all components
-    std::vector<double> expected(num_components);
-
-    // Components 0-999: Polynomials ∫₀¹ x^n * y^m dx dy
-    for (int i = 0; i < 1000; ++i) {
-        int n = i % 10;  // Powers 0-9 for x
-        int m = i / 10;  // Powers 0-99 for y
-        expected[i] = 1.0 / ((n + 1) * (m + 1));
-    }
-
-    // Components 1000-1999: Exponential decay ∫₀¹ exp(-λx) * exp(-μy) dx dy
-    for (int i = 1000; i < 2000; ++i) {
-        double lambda = 0.5 + 0.01 * (i - 1000);  // λ from 0.5 to 10.49
-        double mu = 1.0 + 0.02 * (i - 1000);       // μ from 1.0 to 20.98
-        expected[i] = (1.0 - std::exp(-lambda)) * (1.0 - std::exp(-mu));
-    }
-
-    auto integrand = [](const std::vector<double> &x, std::vector<double> &f)
-    {
-        // Components 0-999: Polynomials
-        for (int i = 0; i < 1000; ++i) {
-            int n = i % 10;
-            int m = i / 10;
-            f[i] = std::pow(x[0], n) * std::pow(x[1], m);
-        }
-
-        // Components 1000-1999: Exponential decay
-        for (int i = 1000; i < 2000; ++i) {
-            double lambda = 0.5 + 0.01 * (i - 1000);
-            double mu = 1.0 + 0.02 * (i - 1000);
-            f[i] = lambda * std::exp(-lambda * x[0]) * mu * std::exp(-mu * x[1]);
-        }
-    };
-
-    std::cout << "Computing " << num_components << " integrals...\n";
-    auto start = std::chrono::high_resolution_clock::now();
-
-    auto result = vegas::integrate(integrand, 2, num_components, 4000000, 8);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    std::cout << "Computation time: " << duration.count() << " ms\n";
-    std::cout << "Total evaluations: " << result.neval << "\n\n";
-
-    // Automatic verification with assertions
-    std::cout << "Running automatic verification...\n";
+    std::cout << "\nDiagnostic: Smooth (regularized) version\n";
     std::cout << std::string(60, '-') << "\n";
 
-    int passed = 0;
-    int failed = 0;
-    int failed_3sigma = 0;
-    int failed_5sigma = 0;
-    double max_sigma = 0.0;
-    int max_sigma_component = -1;
-    double total_relative_error = 0.0;
+    // Same integral but with regularization parameter
+    double eps = 0.01; // Removes singularity
 
-    std::vector<int> failed_components;
+    auto integrand = [eps](const std::vector<double> &x, std::vector<double> &f)
+    {
+        const double k0 = M_PI * x[0];
+        const double k1 = M_PI * x[1];
+        const double k2 = M_PI * x[2];
 
-    for (int comp = 0; comp < num_components; ++comp) {
-        // Check for NaN or inf
-        if (!std::isfinite(result.integral[comp]) || !std::isfinite(result.error[comp])) {
-            std::cerr << "ERROR: Component " << comp << " has non-finite values!\n";
-            std::cerr << "  Result = " << result.integral[comp]
-                      << " ± " << result.error[comp] << "\n";
-            ++failed;
-            failed_components.push_back(comp);
-            continue;
-        }
+        constexpr double A = 1.0 / (M_PI * M_PI * M_PI);
+        const double denom = 1.0 - cos(k0) * cos(k1) * cos(k2) + eps;
 
-        // Check for zero error (shouldn't happen)
-        if (result.error[comp] <= 0.0) {
-            std::cerr << "ERROR: Component " << comp << " has zero or negative error!\n";
-            ++failed;
-            failed_components.push_back(comp);
-            continue;
-        }
+        f[0] = A / denom * (M_PI * M_PI * M_PI);
+    };
 
-        // Compute deviation
-        double diff = std::abs(result.integral[comp] - expected[comp]);
-        double sigma = diff / result.error[comp];
-        double rel_error = (expected[comp] != 0.0) ?
-            std::abs(diff / expected[comp]) : diff;
+    const auto result = vegas::integrate(integrand, 3);
 
-        total_relative_error += rel_error;
-
-        if (sigma > max_sigma) {
-            max_sigma = sigma;
-            max_sigma_component = comp;
-        }
-
-        // Count failures at different sigma levels
-        if (sigma > 5.0) {
-            ++failed_5sigma;
-            ++failed;
-            failed_components.push_back(comp);
-        } else if (sigma > 3.0) {
-            ++failed_3sigma;
-        } else {
-            ++passed;
-        }
-    }
-
-    // Calculate statistics
-    double pass_rate = 100.0 * passed / num_components;
-    double avg_relative_error = total_relative_error / num_components;
-
-    // Print summary
-    std::cout << "\nVerification Results:\n";
-    std::cout << std::string(60, '-') << "\n";
-    std::cout << "✓ Passed (< 3σ):          " << passed << " / " << num_components
-              << " (" << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
-    std::cout << "⚠ Warning (3-5σ):         " << failed_3sigma << "\n";
-    std::cout << "✗ Failed (> 5σ):          " << failed_5sigma << "\n";
-    std::cout << "✗ Failed (NaN/Inf/Zero):  " << failed - failed_5sigma << "\n";
-    std::cout << "\nStatistics:\n";
-    std::cout << "  Max deviation:          " << std::scientific << std::setprecision(4)
-              << max_sigma << "σ (component " << max_sigma_component << ")\n";
-    std::cout << "  Avg relative error:     " << avg_relative_error << "\n";
-    std::cout << "  Overall converged:      " << (result.converged ? "Yes" : "No") << "\n";
-
-    // Show some example results
-    std::cout << "\nSample Results:\n";
-    std::cout << std::string(60, '-') << "\n";
-    std::vector<int> samples = {0, 100, 500, 999, 1000, 1500, 1999};
-    for (int comp : samples) {
-        double diff = std::abs(result.integral[comp] - expected[comp]);
-        double sigma = diff / result.error[comp];
-        std::cout << "Component " << std::setw(4) << comp << ": "
-                  << std::scientific << std::setprecision(6)
-                  << result.integral[comp] << " ± " << result.error[comp]
-                  << " (expected: " << expected[comp] << ", "
-                  << std::fixed << std::setprecision(2) << sigma << "σ)\n";
-    }
-
-    // Show worst failures if any
-    if (!failed_components.empty() && failed_components.size() <= 10) {
-        std::cout << "\nFailed Components:\n";
-        std::cout << std::string(60, '-') << "\n";
-        for (int comp : failed_components) {
-            double diff = std::abs(result.integral[comp] - expected[comp]);
-            double sigma = diff / result.error[comp];
-            std::cout << "Component " << std::setw(4) << comp << ": "
-                      << std::scientific << std::setprecision(6)
-                      << result.integral[comp] << " ± " << result.error[comp]
-                      << " (expected: " << expected[comp] << ", "
-                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
-        }
-    } else if (failed_components.size() > 10) {
-        std::cout << "\n" << failed_components.size() << " components failed (showing first 10):\n";
-        std::cout << std::string(60, '-') << "\n";
-        for (int i = 0; i < 10; ++i) {
-            int comp = failed_components[i];
-            double diff = std::abs(result.integral[comp] - expected[comp]);
-            double sigma = diff / result.error[comp];
-            std::cout << "Component " << std::setw(4) << comp << ": "
-                      << std::scientific << std::setprecision(6)
-                      << result.integral[comp] << " ± " << result.error[comp]
-                      << " (expected: " << expected[comp] << ", "
-                      << std::fixed << std::setprecision(2) << sigma << "σ)\n";
-        }
-    }
-
-    std::cout << "\n" << std::string(60, '=') << "\n";
-
-    // Assertions
-    std::cout << "\nAssertion Checks:\n";
-    std::cout << std::string(60, '-') << "\n";
-
-    // Check 1: No NaN or Inf values
-    bool check1 = (failed - failed_5sigma) == 0;
-    std::cout << (check1 ? "✓" : "✗") << " No NaN/Inf/Zero errors\n";
-    if (!check1) {
-        throw std::runtime_error("ASSERTION FAILED: Found NaN/Inf/Zero values");
-    }
-
-    // Check 2: Pass rate > 95% (allowing for statistical fluctuations)
-    // With 2000 components, expect ~5% to be > 2σ by chance
-    bool check2 = pass_rate >= 95.0;
-    std::cout << (check2 ? "✓" : "✗") << " Pass rate >= 95% (got "
-              << std::fixed << std::setprecision(2) << pass_rate << "%)\n";
-    if (!check2) {
-        throw std::runtime_error("ASSERTION FAILED: Pass rate too low");
-    }
-
-    // Check 3: No catastrophic failures (> 10σ)
-    bool check3 = max_sigma < 10.0;
-    std::cout << (check3 ? "✓" : "✗") << " Max deviation < 10σ (got "
-              << std::fixed << std::setprecision(2) << max_sigma << "σ)\n";
-    if (!check3) {
-        throw std::runtime_error("ASSERTION FAILED: Catastrophic deviation detected");
-    }
-
-    // Check 4: Average relative error is reasonable
-    bool check4 = avg_relative_error < 0.01;  // < 1% average
-    std::cout << (check4 ? "✓" : "✗") << " Avg relative error < 1% (got "
-              << std::scientific << std::setprecision(4) << avg_relative_error << ")\n";
-    if (!check4) {
-        throw std::runtime_error("ASSERTION FAILED: Average relative error too high");
-    }
-
-    // Check 5: Less than 1% complete failures (> 5σ)
-    double failure_rate = 100.0 * failed_5sigma / num_components;
-    bool check5 = failure_rate < 1.0;
-    std::cout << (check5 ? "✓" : "✗") << " Failure rate < 1% (got "
-              << std::fixed << std::setprecision(2) << failure_rate << "%)\n";
-    if (!check5) {
-        throw std::runtime_error("ASSERTION FAILED: Too many 5-sigma failures");
-    }
-
-    std::cout << "\n✓ All assertions passed!\n";
-    std::cout << std::string(60, '=') << "\n";
+    std::cout << "Regularized result (eps=" << eps << "): "
+        << result.integral[0] << " ± " << result.error[0] << "\n";
+    std::cout << "χ² = " << result.chi2[0] << "\n";
+    std::cout << "Note: This should be lower than 1.393 due to regularization\n";
 }
 
 int main()
@@ -821,29 +794,27 @@ int main()
     std::cout << "╚════════════════════════════════════════════════════════════╝\n";
 
     try {
-        test_polynomial_2d();
-        test_gaussian_3d();
-        test_corner_peak();
-        test_oscillatory();
-        test_product_sines();
-        test_discontinuous();
-        test_sphere_volume();
-        test_multiple_components();
-        test_tsuda();
-        test_genz_oscillatory();
-        test_camel();
-        test_anisotropic_gaussian();
-        test_near_singularity();
-        test_exponential_product();
-        test_box_function();
-        test_high_dimensional();
-        test_small_values();
-        test_mixed_scale();
-        test_custom_boundaries_trig();
-        test_custom_boundaries_gaussian();
-
-        // Stress test with many components
-        test_large_ncomp();
+        test_polynomial_2d();              // test-1
+        test_gaussian_3d();                // test-2
+        test_corner_peak();                // test-3
+        test_oscillatory();                // test-4
+        test_product_sines();              // test-5
+        test_discontinuous();              // test-6
+        test_sphere_volume();              // test-7
+        test_multiple_components();        // test-8
+        test_tsuda();                      // test-9
+        test_genz_oscillatory();           // test-10
+        test_camel();                      // test-11
+        test_anisotropic_gaussian();       // test-12
+        test_near_singularity();           // test-13
+        test_exponential_product();        // test-14
+        test_box_function();               // test-15
+        test_high_dimensional();           // test-16
+        test_small_values();               // test-17
+        test_mixed_scale();                // test-18
+        test_custom_boundaries_trig();     // test-19
+        test_custom_boundaries_gaussian(); // test-20
+        test_large_ncomp();                // test-21: stress test with many components
 
         test_gsl_ising_integral();
 
