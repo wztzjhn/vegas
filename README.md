@@ -77,7 +77,7 @@ template <typename Integrand, typename UserData>
 
 Signature of the integrand:
 ```
-void(const std::vector<double> &x, std::vector<double> &f);
+void integrand(const std::vector<double> &x, std::vector<double> &f);
 ```
 where `x` is the input point in `[xmin,xmax]^ndim` and `f` is the output vector of size `ncomp`.
 
