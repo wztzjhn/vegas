@@ -11,24 +11,24 @@ Simply include the hpp file in your c++ project (take a look at test.cc for exam
 ```
 // xmin, xmax (integration domain) specified by user, each has dimension ndim
 template <typename Integrand>
-    Result integrate(Integrand &&integrand, 
-        const std::vector<double> &xmin, 
-        const std::vector<double> &xmax,
-        int ncomp = 1,
-        int maxeval = 1000000,
-        int niter = 10,
-        double alpha = 1.5,
-        uint64_t seed = 123456789,
-        double rtol = 1e-3,
-        double atol = 1e-10,
-        int nbins = 50,
-        int nstrat = 0,
-        int verbose = 0);
+    Result integrate(Integrand &&integrand,  // Signature of the integrand is defined below
+        const std::vector<double> &xmin,     // Lower bounds, whose size should match the input dimensions
+        const std::vector<double> &xmax,     // Upper bounds, whose size should match the input dimensions
+        int ncomp = 1,                       // Number of output components (integrands)
+        int maxeval = 1000000,               // Maximum total evaluations
+        int niter = 10,                      // Number of iterations
+        double alpha = 1.5,                  // Grid refinement parameter (0.5-2.0). α > 1: focuses on peaks, α < 1: more conservative
+        uint64_t seed = 123456789,           // Random seed
+        double rtol = 1e-3,                  // Relative tolerance
+        double atol = 1e-10,                 // Absolute tolerance
+        int nbins = 50,                      // Number of bins per dimension
+        int nstrat = 0,                      // Number of stratifications per dimension (0=auto)
+        int verbose = 0);                    // Verbosity level (0=silent, 1=iterations, 2=detailed)
 
 // userdata: a Pointer to user data passed to integrand
 template <typename Integrand, typename UserData>
     Result integrate_with_data(Integrand &&integrand,
-        UserData *userdata,
+        UserData *userdata,                  // Pointer to user data passed to integrand
         const std::vector<double> &xmin, 
         const std::vector<double> &xmax,
         int ncomp = 1,
@@ -45,7 +45,7 @@ template <typename Integrand, typename UserData>
 // xmin, xmax implicitly assumed to be [0, 1] in every dimension
 template <typename Integrand>
     Result integrate(Integrand &&integrand,
-        int ndim,
+        int ndim,                            // Number of input dimensions
         int ncomp = 1,
         int maxeval = 1000000,
         int niter = 10,

@@ -48,16 +48,14 @@ namespace vegas
         int maxeval   = 1000000;   // Maximum total evaluations
         int niter     = 10;        // Number of iterations
         double α      = 1.5;       // Grid refinement parameter (0.5-2.0). α > 1: focuses on peaks, α < 1: more conservative
-        int nbins     = 50;        // Number of bins per dimension
-        int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
+        uint64_t seed = 123456789; // Random seed for reproducibility
         double rtol   = 1e-3;      // Relative tolerance
         double atol   = 1e-10;     // Absolute tolerance
+        int nbins     = 50;        // Number of bins per dimension
+        int nstrat    = 0;         // Number of stratifications per dimension (0=auto)
         int verbose   = 0;         // Verbosity level (0=silent, 1=iterations, 2=detailed)
-        uint64_t seed = 123456789; // Random seed for reproducibility
-
-        // Integration bounds (default: [0,1]^ndim)
-        std::vector<double> xmin; // Lower bounds
-        std::vector<double> xmax; // Upper bounds
+        std::vector<double> xmin;  // Lower bounds, whose size should match the input dimensions
+        std::vector<double> xmax;  // Upper bounds, whose size should match the input dimensions
     };
 
     /** Result of VEGAS integration */
@@ -479,8 +477,8 @@ namespace vegas
      *
      * @param integrand Function with signature void(const std::vector<double>& x, std::vector<double>& f)
      *                  where x is the input point in [xmin,xmax]^ndim and f is the output vector of size ncomp
-     * @param xmin Lower integration bounds
-     * @param xmax Upper integration bounds
+     * @param xmin Lower integration bounds, whose size should match the input dimensions
+     * @param xmax Upper integration bounds, whose size should match the input dimensions
      * @param ncomp Number of output components (integrands)
      * @param maxeval Maximum total number of evaluations
      * @param niter Number of refinement iterations
@@ -533,8 +531,8 @@ namespace vegas
      * @param integrand Function with signature void(const std::vector<double>& x,
      *                  std::vector<double>& f, void* userdata)
      * @param userdata Pointer to user data passed to integrand
-     * @param xmin Lower integration bounds
-     * @param xmax Upper integration bounds
+     * @param xmin Lower integration bounds, whose size should match the input dimensions
+     * @param xmax Upper integration bounds, whose size should match the input dimensions
      * @param ncomp Number of output components (integrands)
      * @param maxeval Maximum total number of evaluations
      * @param niter Number of refinement iterations\
