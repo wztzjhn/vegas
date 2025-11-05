@@ -25,7 +25,6 @@ template <typename Integrand>
         int nstrat = 0,                      // Number of stratifications per dimension (0=auto)
         int verbose = 0);                    // Verbosity level (0=silent, 1=iterations, 2=detailed)
 
-// userdata: a Pointer to user data passed to integrand
 template <typename Integrand, typename UserData>
     Result integrate_with_data(Integrand &&integrand,
         UserData *userdata,                  // Pointer to user data passed to integrand
