@@ -8,8 +8,8 @@ Simply include the hpp file in your c++ project (take a look at test.cc for exam
 ```
 
 ### API
+When lower and upper bounds are specificied in vectors `xmin` and `xmax`, each of size `ndim`:
 ```
-// xmin, xmax (integration domain) specified by user, each has dimension ndim
 template <typename Integrand>
     Result integrate(Integrand &&integrand,  // Signature of the integrand is defined below
         const std::vector<double> &xmin,     // Lower bounds, whose size should match the input dimensions
@@ -41,8 +41,10 @@ template <typename Integrand, typename UserData>
         int nbins = 50,
         int nstrat = 0,
         int verbose = 0);
+```
 
-// xmin, xmax implicitly assumed to be [0, 1] in every dimension
+When lower and upper bounds are implicitly assumed to be [0, 1] in every dimension:
+```
 template <typename Integrand>
     Result integrate(Integrand &&integrand,
         int ndim,                            // Number of input dimensions
